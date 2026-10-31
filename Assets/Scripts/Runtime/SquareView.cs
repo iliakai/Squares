@@ -9,6 +9,8 @@ namespace Squares
         private readonly List<SpriteRenderer> pool = new List<SpriteRenderer>();
         private readonly List<Particle> particles = new List<Particle>();
         private readonly List<Pulse> pulses = new List<Pulse>();
+        private readonly List<ConstellationDiscovery> constellations = new List<ConstellationDiscovery>();
+        public IReadOnlyList<ConstellationDiscovery> ConstellationVisuals => constellations;
         private readonly Transform root;
         private readonly Sprite sprite;
         private int used;
@@ -35,10 +37,12 @@ namespace Squares
         }
 
         private static Vector2 Vec(V2 v) => new Vector2(v.X, v.Y);
-        public void ClearEffects() { particles.Clear(); pulses.Clear(); shake = 0; }
+        public void ClearEffects() { particles.Clear(); pulses.Clear(); constellations.Clear(); shake = 0; }
         public void Event(WorldEvent e, bool flashes)
         {
             if (e.Kind == EffectKind.Pickup || e.Kind == EffectKind.Shot) return;
+            if (e.Kind == EffectKind.Constellation && e.Discovery != null)
+            { if (constellations.Count < 8) constellations.Add(e.Discovery); return; }
             if (e.Kind == EffectKind.Blast && pulses.Count < 100) pulses.Add(new Pulse { P = Vec(e.A), Radius = e.Size });
             Color color = e.Kind == EffectKind.Hurt ? Red : e.Kind == EffectKind.Arc || e.Kind == EffectKind.Chill ? Blue :
                 e.Kind == EffectKind.Blast || e.Kind == EffectKind.Ram ? Gold : Mint;
@@ -98,6 +102,7 @@ namespace Squares
                 Color c = p.Color; c.a = 1 - p.Age / p.Life;
                 Box(p.P, Vector2.one * p.Size, c); particles[i] = p;
             }
+            if (world != null) DrawConstellations(world);
             for (int i = used; i < pool.Count; i++) pool[i].enabled = false;
         }
 
@@ -106,6 +111,16 @@ namespace Squares
             foreach (Pickup p in w.Pickups)
             {
                 Vector2 pos = Vec(p.Position);
+                if (p.Celestial)
+                {
+                    float pulse = .08f * Mathf.Sin(w.Time * 4);
+                    Box(pos, Vector2.one * (1.65f + pulse), new Color(1, .72f, .28f, .06f));
+                    Frame(pos, 1.25f + pulse, .04f, new Color(1, .8f, .4f, .6f));
+                    Box(pos, Vector2.one * .92f, Gold);
+                    Box(pos, Vector2.one * .67f, new Color(.18f, .105f, .025f));
+                    Box(pos, Vector2.one * .33f, Color.white);
+                    continue;
+                }
                 Box(pos, Vector2.one * .3f, new Color(.4f, .9f, 1, .07f));
                 Box(pos, Vector2.one * (p.Value > 3 ? .2f : .105f), new Color(.7f, .93f, 1));
             }
@@ -179,6 +194,31 @@ namespace Squares
                 case EnemyKind.Elite: return Gold;
                 case EnemyKind.Boss: return new Color(1, .3f, .55f);
                 default: return Red;
+            }
+        }
+        private void DrawConstellations(World w)
+        {
+            for (int index = constellations.Count - 1; index >= 0; index--)
+            {
+                ConstellationDiscovery discovery = constellations[index];
+                float age = (w.Ticks - discovery.Tick) * World.Dt;
+                if (age > 2.5f) { constellations.RemoveAt(index); continue; }
+                float flight = Mathf.Clamp01((age - .8f) / 1.7f), scale = 1 + flight * flight * 10;
+                Vector2 center = Vec(discovery.Center) + Vector2.up * flight * flight * 24;
+                Color c = new Color(1, .85f, .43f, 1 - flight * .8f);
+                ConstellationPattern pattern = Constellations.All[discovery.PatternIndex];
+                for (int i = 0; i < pattern.Edges.Length; i += 2)
+                {
+                    Vector2 a = center + Vec(discovery.Stars[pattern.Edges[i]] - discovery.Center) * scale;
+                    Vector2 b = center + Vec(discovery.Stars[pattern.Edges[i + 1]] - discovery.Center) * scale;
+                    Line(a, Vector2.Lerp(a, b, Mathf.Clamp01(age / .35f)), .035f * Mathf.Sqrt(scale), c);
+                }
+                foreach (V2 star in discovery.Stars)
+                {
+                    Vector2 p = center + Vec(star - discovery.Center) * scale;
+                    Box(p, Vector2.one * .42f * Mathf.Sqrt(scale), new Color(1, .8f, .3f, .14f * c.a));
+                    Box(p, Vector2.one * .19f * Mathf.Sqrt(scale), Color.white * new Color(1, 1, 1, c.a));
+                }
             }
         }
         private void Frame(Vector2 p, float size, float thickness, Color c)

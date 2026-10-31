@@ -21,6 +21,7 @@ namespace Squares
         private GUIStyle label, title, body;
         private Font font;
         private int menuFrames, errors, picks;
+        private int screenshotsCount;
         private bool smoke, smokeFinished, screenshotTaken, smokePaused, pausePassed, draftCaptured, realtimeReview;
         private float reviewDraftTime;
         private int reviewMilestone = 30;
@@ -48,6 +49,11 @@ namespace Squares
             Application.logMessageReceived += OnLog;
             string[] args = Environment.GetCommandLineArgs();
             smoke = Array.IndexOf(args, "-squares-smoke") >= 0;
+            constellationDemo = smoke && Array.IndexOf(args, "-constellation-demo") >= 0;
+            reviewStargazer = smoke && Array.IndexOf(args, "-review-stargazer") >= 0;
+            if (uint.TryParse(Argument(args, "-review-seed"), out uint parsedSeed)) reviewSeed = parsedSeed;
+            if (int.TryParse(Argument(args, "-review-core"), out int parsedCore)) reviewCore = Mathf.Clamp(parsedCore, 0, 2);
+            if (int.TryParse(Argument(args, "-review-pattern"), out int parsedPattern)) reviewPattern = Mathf.Clamp(parsedPattern, 0, Constellations.All.Length - 1);
             realtimeReview = Array.IndexOf(args, "-realtime-review") >= 0;
             smokeResult = Argument(args, "-smoke-result"); capturePath = Argument(args, "-capture");
             if (float.TryParse(Argument(args, "-smoke-seconds"), System.Globalization.NumberStyles.Float,
@@ -55,9 +61,10 @@ namespace Squares
             string root = Path.GetDirectoryName(Application.dataPath);
             saves = new SaveStore(Path.Combine(root, smoke ? "Temp/SmokeSave" : "Saves"));
             profile = smoke ? new Profile() : saves.Load();
+            if (smoke) profile.selectedCore = reviewCore;
             font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
             view = new SquareView(transform); audioBus = new SynthAudio(gameObject);
-            Debug.Log("SQUARES_BOOT_OK version=0.2.0 smoke=" + smoke);
+            Debug.Log("SQUARES_BOOT_OK version=0.3.0 smoke=" + smoke + " fixture=" + constellationDemo);
         }
         private static string Argument(string[] args, string key)
         { int i = Array.IndexOf(args, key); return i >= 0 && i + 1 < args.Length ? args[i + 1] : null; }
@@ -69,6 +76,9 @@ namespace Squares
         {
             if (Input.GetKeyDown(KeyCode.F11)) UnityEngine.Screen.fullScreen = !UnityEngine.Screen.fullScreen;
             if (smoke) { SmokeUpdate(); Render(); return; }
+            if (Input.GetKeyDown(KeyCode.C)) { atlasOpen = !atlasOpen; buildOpen = false; accumulator = 0; }
+            if (atlasOpen)
+            { if (Input.GetKeyDown(KeyCode.Escape)) atlasOpen = false; Render(); return; }
             if (mode == ScreenMode.Menu)
             {
                 if (Input.GetKeyDown(KeyCode.Return)) StartRun();
@@ -95,7 +105,8 @@ namespace Squares
                 {
                     float x = (Held(KeyCode.D, KeyCode.RightArrow) ? 1 : 0) - (Held(KeyCode.A, KeyCode.LeftArrow) ? 1 : 0);
                     float y = (Held(KeyCode.W, KeyCode.UpArrow) ? 1 : 0) - (Held(KeyCode.S, KeyCode.DownArrow) ? 1 : 0);
-                    var command = new Command(new V2(x, y), Input.GetKey(KeyCode.Space) || Input.GetKey(KeyCode.LeftShift), Input.GetKey(KeyCode.Q));
+                    var command = new Command(new V2(x, y), Input.GetKey(KeyCode.Space) || Input.GetKey(KeyCode.LeftShift), Input.GetKey(KeyCode.Q),
+                        Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl));
                     accumulator = Mathf.Min(accumulator + Time.unscaledDeltaTime, World.Dt * 8);
                     while (accumulator >= World.Dt && world.Phase == RunPhase.Running)
                     { Tick(command); accumulator -= World.Dt; }
@@ -106,18 +117,23 @@ namespace Squares
         }
         private static bool Held(KeyCode a, KeyCode b) => Input.GetKey(a) || Input.GetKey(b);
         private void Render() => view.Render(world, Mathf.Min(.05f, Time.unscaledDeltaTime),
-            mode != ScreenMode.Run || (!paused && !buildOpen && world.Phase == RunPhase.Running), profile.flashes);
+            mode != ScreenMode.Run || (!paused && !buildOpen && !atlasOpen && world.Phase == RunPhase.Running), profile.flashes);
         private void Tick(Command command)
         {
             world.Step(command);
             foreach (WorldEvent e in world.Events)
-            { view.Event(e, profile.flashes); audioBus.Event(e, profile.sound && !smoke); }
+            {
+                view.Event(e, profile.flashes); audioBus.Event(e, profile.sound && !smoke);
+                if (smoke && e.Kind == EffectKind.Constellation)
+                    Debug.Log($"SQUARES_STAR name={Constellations.All[e.Discovery.PatternIndex].Name} stars={e.Discovery.Stars.Length} sum={e.Discovery.OriginalValue} reward={e.Discovery.Reward} rms={e.Discovery.Error:F4} fixture={constellationDemo}");
+            }
         }
         private void StartRun()
         {
-            uint seed = smoke ? 735193u : unchecked((uint)DateTime.UtcNow.Ticks);
+            uint seed = smoke ? reviewSeed : unchecked((uint)DateTime.UtcNow.Ticks);
             world = new World(seed, profile.selectedCore, profile.vitality, profile.learning, profile.tempo);
-            mode = ScreenMode.Run; paused = banked = buildOpen = false; accumulator = 0; picks = 0; view.ClearEffects();
+            if (constellationDemo) AddConstellationReviewFixture();
+            mode = ScreenMode.Run; paused = banked = buildOpen = atlasOpen = false; accumulator = 0; picks = 0; view.ClearEffects();
         }
         private void Pick(int index)
         {
@@ -140,6 +156,7 @@ namespace Squares
             profile.flux += world.EarnedFlux; profile.totalRuns++;
             profile.bestKills = Math.Max(profile.bestKills, world.Kills);
             profile.bestSeconds = Math.Max(profile.bestSeconds, (int)world.Time);
+            profile.constellationMask |= world.ConstellationMask; profile.totalConstellations += world.ConstellationsFound;
             if (!smoke) saves.Save(profile);
         }
 
@@ -155,7 +172,8 @@ namespace Squares
                 title = new GUIStyle(label) { fontStyle = FontStyle.Bold };
                 body = new GUIStyle(label) { wordWrap = true };
             }
-            if (mode == ScreenMode.Menu) Menu();
+            if (atlasOpen) AtlasScreen();
+            else if (mode == ScreenMode.Menu) Menu();
             else
             {
                 Hud();
@@ -176,7 +194,7 @@ namespace Squares
             TextAt(new Rect(left, 48, 750, 30), "ОДИН РЕАКТОР. ОДНА АРЕНА. ТЫСЯЧИ СОЧЕТАНИЙ.", 15, SquareView.Mint);
             TextAt(new Rect(left - 4, 94, 760, 100), "SQUARES", 90, Text, true);
             TextAt(new Rect(left, 202, 750, 55), "// OVERLOAD", 42, SquareView.Mint, true);
-            TextAt(new Rect(left + 890, 61, 470, 30), "ВЕРСИЯ 0.2   /   ОДИНОЧНАЯ ИГРА", 15, Muted, false, TextAnchor.UpperRight);
+            TextAt(new Rect(left + 890, 61, 470, 30), "ВЕРСИЯ 0.3   /   ЗВЁЗДНЫЙ ОПЫТ", 15, Muted, false, TextAnchor.UpperRight);
             TextAt(new Rect(left + 940, 124, 420, 60), profile.flux + "  ФЛЮКСА", 44, SquareView.Gold, true, TextAnchor.UpperRight);
             TextAt(new Rect(left + 960, 198, 400, 40), "РЕКОРД  " + Clock(profile.bestSeconds) + "   /   " + profile.bestKills + " УБИЙСТВ", 17, Muted, false, TextAnchor.UpperRight);
             Fill(new Rect(left, 284, 1360, 1), LineColor);
@@ -218,7 +236,7 @@ namespace Squares
                     if (profile.BuyResearch(i)) saves.Save(profile);
             }
             TextAt(new Rect(left, uiHeight - 134, 880, 34), "WASD  ДВИЖЕНИЕ    SPACE  РЫВОК    Q  ПЕРЕГРУЗКА", 17, Text);
-            TextAt(new Rect(left, uiHeight - 95, 900, 54), "Собирай белый опыт, выбирай навыки, строй сочетания. Босс в 03:00.\nНа 5-м уровне — специализация. TAB — сборка и подсказки.", 16, Muted, wrap: true);
+            TextAt(new Rect(left, uiHeight - 95, 900, 54), "Созвездия из точек опыта дают награду ×10. C — звёздный атлас.\nCTRL — придержать опыт. TAB — сборка. Босс в 03:00.", 16, Muted, wrap: true);
             if (ButtonAt(new Rect(left + 940, uiHeight - 136, 420, 70), "НА АРЕНУ   [ ENTER ]", SquareView.Mint)) StartRun();
             TextAt(new Rect(left + 940, uiHeight - 49, 420, 24), "F11  ПОЛНЫЙ ЭКРАН  /  ESC  ПАУЗА", 14, Muted, false, TextAnchor.UpperRight);
         }
@@ -264,6 +282,7 @@ namespace Squares
                 TextAt(new Rect(uiWidth / 2 - 300, uiHeight - 128, 600, 30), "// ПЕРЕГРУЗКА АКТИВНА //", 19, SquareView.Gold, true, TextAnchor.UpperCenter);
             if (Time.unscaledTime < skillToastUntil && world.Phase == RunPhase.Running && !buildOpen)
                 TextAt(new Rect(uiWidth / 2 - 550, 150, 1100, 32), skillToast, 21, SquareView.Mint, true, TextAnchor.UpperCenter);
+            ConstellationHud();
         }
 
         private void Draft()
@@ -291,6 +310,7 @@ namespace Squares
             TextAt(new Rect(x + 42, y + 35, 816, 28), "ИТОГИ ЗАБЕГА / SEED " + world.Seed, 15, Muted);
             TextAt(new Rect(x + 42, y + 90, 816, 62), endedVoluntarily ? "РЕАКТОР ЭВАКУИРОВАН" : "РЕАКТОР РАЗРУШЕН", 41, Text, true);
             TextAt(new Rect(x + 42, y + 166, 816, 40), SkillText.Specialty(world.Specialization) + " / СЛЕДУЮЩАЯ СБОРКА БУДЕТ ДРУГОЙ.", 17, SquareView.Mint);
+            TextAt(new Rect(x + 42, y + 207, 816, 30), "СОЗВЕЗДИЙ: " + world.ConstellationsFound + " / ПОДОБРАНО ЗВЁЗДНОГО ОПЫТА: " + world.CelestialExperienceCollected, 16, SquareView.Gold);
             string[] names = { "ВРЕМЯ", "УБИЙСТВА", "УРОВЕНЬ", "БОССЫ" };
             string[] values = { Clock(world.Time), world.Kills.ToString(), world.Level.ToString(), world.Bosses.ToString() };
             for (int i = 0; i < 4; i++)
@@ -358,6 +378,7 @@ namespace Squares
                 if (buildFrames < 5) return;
                 buildPausePassed = world.Ticks == buildTick; buildOpen = false;
             }
+            if (SmokeAtlas()) return;
             if (world.Phase == RunPhase.Draft)
             {
                 if (world.IsSpecializationDraft && !specializationCaptured && draftFrames == 1)
@@ -375,18 +396,24 @@ namespace Squares
                 steps = (int)(accumulator / World.Dt); accumulator -= steps * World.Dt;
             }
             for (int i = 0; i < steps && world.Phase == RunPhase.Running && world.Time < smokeSeconds; i++)
-                Tick(AutoPilot.Input(world));
+            {
+                Command input = AutoPilot.Input(world);
+                if (constellationDemo && world.Ticks < 90) input.HoldExperience = true;
+                if (reviewStargazer && world.Time > 15 && world.Time % 45 < 12) input.HoldExperience = true;
+                Tick(input);
+            }
+            CaptureConstellationStages();
             if (world.Time >= reviewMilestone)
             {
                 CaptureState("combat-" + reviewMilestone);
-                Debug.Log($"SQUARES_REVIEW t={world.Time:F1} kills={world.Kills} level={world.Level} hull={world.Hull:F1} bosses={world.Bosses}");
+                Debug.Log($"SQUARES_REVIEW t={world.Time:F1} kills={world.Kills} level={world.Level} hull={world.Hull:F1} bosses={world.Bosses} constellations={world.ConstellationsFound} star_xp={world.CelestialExperienceCollected}");
                 reviewMilestone += 30;
             }
             if (!screenshotTaken && world.Time >= 45 && world.Phase == RunPhase.Running && !string.IsNullOrEmpty(capturePath))
             {
                 string dir = Path.GetDirectoryName(capturePath);
                 if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-                ScreenCapture.CaptureScreenshot(capturePath); screenshotTaken = true;
+                ScreenCapture.CaptureScreenshot(capturePath); screenshotTaken = true; screenshotsCount++;
             }
             if (world.Phase == RunPhase.Dead || world.Time >= smokeSeconds)
             {
@@ -401,19 +428,25 @@ namespace Squares
             string directory = Path.GetDirectoryName(capturePath);
             if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
             ScreenCapture.CaptureScreenshot(Path.Combine(directory, name + ".png"));
+            screenshotsCount++;
         }
         [Serializable]
         private sealed class SmokeReport
         {
-            public bool passed, pausePassed, buildPausePassed, screenshotRequested;
-            public int errors, ticks, kills, level, bosses, picks, flux;
+            public bool passed, pausePassed, buildPausePassed, atlasPausePassed, screenshotRequested, fixture;
+            public int errors, ticks, kills, level, bosses, picks, flux, constellations, starPickups, screenshots;
+            public long starXP, starXPCreated;
             public float seconds, hull;
             public string fingerprint;
         }
         private void WriteSmokeResult()
         {
-            var report = new SmokeReport { passed = errors == 0 && pausePassed && (!buildChecked || buildPausePassed) && picks >= 3 && world.Kills >= 20 && world.Time >= 30,
-                pausePassed = pausePassed, buildPausePassed = buildPausePassed, screenshotRequested = screenshotTaken, errors = errors, ticks = world.Ticks,
+            bool combatPassed = constellationDemo ? world.ConstellationsFound > 0 && world.CelestialPickupsCollected > 0 : world.Kills >= 20 && world.Time >= 30;
+            var report = new SmokeReport { passed = errors == 0 && pausePassed && (!buildChecked || buildPausePassed) && (!atlasChecked || atlasPausePassed) && picks >= 3 && combatPassed,
+                pausePassed = pausePassed, buildPausePassed = buildPausePassed, atlasPausePassed = atlasPausePassed, fixture = constellationDemo,
+                constellations = world.ConstellationsFound, starPickups = world.CelestialPickupsCollected, starXP = world.CelestialExperienceCollected,
+                starXPCreated = world.CelestialExperienceCreated, screenshotRequested = screenshotsCount > 0,
+                screenshots = screenshotsCount, errors = errors, ticks = world.Ticks,
                 kills = world.Kills, level = world.Level, bosses = world.Bosses, picks = picks, flux = world.EarnedFlux,
                 seconds = world.Time, hull = world.Hull, fingerprint = world.Fingerprint().ToString() };
             string json = JsonUtility.ToJson(report, true);

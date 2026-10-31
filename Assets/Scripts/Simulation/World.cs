@@ -24,6 +24,13 @@ namespace Squares.Simulation
         public int Bosses { get; private set; }
         public int Combo { get; private set; }
         public int DamageTaken { get; private set; }
+        public int ConstellationsFound { get; private set; }
+        public long CelestialExperienceCreated { get; private set; }
+        public long CelestialExperienceCollected { get; private set; }
+        public int CelestialPickupsCollected { get; private set; }
+        public int ConstellationMask { get; private set; }
+        public ConstellationDiscovery LastConstellation { get; private set; }
+        public bool HoldingExperience { get; private set; }
         public Specialization Specialization { get; private set; }
         public bool IsSpecializationDraft => Phase == RunPhase.Draft && Level >= 5 && Specialization == Specialization.None;
         public int RerollsRemaining { get; private set; } = 1;
@@ -65,6 +72,8 @@ namespace Squares.Simulation
         private readonly float researchXP, researchSpeed;
         private V2 dashHeading;
         private readonly HashSet<int> ramHits = new HashSet<int>();
+        private readonly ConstellationMatcher constellationMatcher = new ConstellationMatcher();
+        private int constellationCursor;
 
         public World(uint seed, int core = 0, int vitality = 0, int learning = 0, int tempo = 0)
         {
@@ -90,6 +99,7 @@ namespace Squares.Simulation
             Events.Clear();
             if (Phase != RunPhase.Running) return;
             Ticks++;
+            HoldingExperience = command.HoldExperience;
             Invincible = Math.Max(0, Invincible - Dt);
             DashCooldown = Math.Max(0, DashCooldown - Dt);
             DashTime = Math.Max(0, DashTime - Dt);
@@ -123,6 +133,7 @@ namespace Squares.Simulation
             UpdateEnemies();
             UpdateBullets();
             RemoveDead();
+            if (Ticks % Constellations.SearchInterval == 0) DiscoverConstellation();
             UpdatePickups();
             if (Hull <= 0) { Hull = 0; Phase = RunPhase.Dead; }
             else CheckLevel();
@@ -389,10 +400,12 @@ namespace Squares.Simulation
 
         private void UpdatePickups()
         {
+            if (HoldingExperience) return;
             float magnet = Stats.MagnetRadius;
             for (int i = Pickups.Count - 1; i >= 0; i--)
             {
                 Pickup p = Pickups[i];
+                if (p.AvailableTick > Ticks) continue;
                 float distance = V2.DistanceSquared(Position, p.Position);
                 if (distance < magnet * magnet)
                 {
@@ -401,8 +414,26 @@ namespace Squares.Simulation
                 }
                 if (V2.DistanceSquared(Position, p.Position) > .3f) continue;
                 XP += p.Value * (1 + Rank(Module.Learning) * .15f + researchXP);
-                Emit(EffectKind.Pickup, p.Position); Pickups.RemoveAt(i);
+                if (p.Celestial) { CelestialPickupsCollected++; CelestialExperienceCollected += p.Value; }
+                Emit(p.Celestial ? EffectKind.StarPickup : EffectKind.Pickup, p.Position, size: p.Value); Pickups.RemoveAt(i);
             }
+        }
+
+        private void DiscoverConstellation()
+        {
+            ConstellationDiscovery discovery = constellationMatcher.Find(Pickups, Position, Stats.MagnetRadius,
+                Ticks, constellationCursor, HoldingExperience);
+            constellationCursor = (constellationCursor + Constellations.AnchorBudget) % 1000000000;
+            if (discovery == null) return;
+            var consumed = new HashSet<int>(discovery.PickupIds);
+            Pickups.RemoveAll(p => consumed.Contains(p.Id));
+            Pickups.Add(new Pickup { Id = ++nextId, Position = discovery.Center, Value = discovery.Reward,
+                Celestial = true, AvailableTick = Ticks + 150 });
+            ConstellationsFound++; ConstellationMask |= 1 << discovery.PatternIndex;
+            CelestialExperienceCreated += discovery.Reward; LastConstellation = discovery;
+            // A discovery is player-facing feedback and must survive a very busy combat tick.
+            if (Events.Count >= 256) Events.RemoveAt(Events.Count - 1);
+            Events.Add(new WorldEvent(EffectKind.Constellation, discovery.Center) { Discovery = discovery });
         }
 
         private void CheckLevel()
@@ -479,13 +510,17 @@ namespace Squares.Simulation
             Action<int> add = n => { unchecked { hash = (hash ^ (uint)n) * 1099511628211UL; } };
             Action<float> number = n => add(BitConverter.ToInt32(BitConverter.GetBytes(n), 0));
             add(Ticks); add(Kills); add(Level); add(Bosses); add((int)Phase); add((int)Specialization); add(RerollsRemaining);
+            add(ConstellationsFound); add(constellationCursor); add(HoldingExperience ? 1 : 0);
+            add(ConstellationMask); add(CelestialPickupsCollected);
+            add((int)CelestialExperienceCreated); add((int)(CelestialExperienceCreated >> 32));
+            add((int)CelestialExperienceCollected); add((int)(CelestialExperienceCollected >> 32));
             foreach (Module choice in Choices) add((int)choice);
             number(Position.X); number(Position.Y); number(Hull); number(XP); number(Charge);
             foreach (int rank in Ranks) add(rank);
             foreach (Enemy e in Enemies)
             { add(e.Id); add((int)e.Kind); number(e.Position.X); number(e.Position.Y); number(e.HP); number(e.SlowTime); }
             foreach (Bullet b in Bullets) { add(b.Id); number(b.Position.X); number(b.Position.Y); number(b.Life); }
-            foreach (Pickup p in Pickups) { add(p.Id); number(p.Position.X); number(p.Position.Y); add(p.Value); }
+            foreach (Pickup p in Pickups) { add(p.Id); number(p.Position.X); number(p.Position.Y); add((int)p.Value); add((int)(p.Value >> 32)); add(p.AvailableTick); add(p.Celestial ? 1 : 0); }
             return hash;
         }
     }

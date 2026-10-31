@@ -10,7 +10,48 @@ error `setup refresh had errors`. Requirements were recovered from local Codex h
 Working root: `P:\GameDevelopment\Squares`. Unity: `6000.3.26f1` with Windows support.
 Sandboxed shell startup still fails; escalated commands and apply_patch work.
 
-## Current: v0.2.0 — readable skills
+## Current: v0.3.0 — experience constellations
+
+Specification 003 implemented. Requested hour started 2026-10-31 19:58:55 UTC, minimum
+finish 20:58:55 UTC. The last verification/delivery iteration continued after the deadline.
+No additional gameplay work was started after the deadline; final comparisons and delivery
+are recorded in `docs/playtests/2026-10-31-constellations.md`.
+
+- Six recognizable main-star figures: Cassiopeia, Big Dipper in Ursa Major, Orion, Cygnus,
+  Lyra, Leo (5–9 stars). Pure C# matcher supports rotation, translation, scale, reflection,
+  and small positional errors. Extra pickups are ignored; correspondence is one-to-one.
+- A match consumes only its stars and creates one large golden pickup at the centroid,
+  with exactly 10 times their total base value. 64-bit arithmetic; player XP bonus applied
+  once on collection. Celestial pickups cannot become constellation stars again.
+- Name, actual star positions and connecting lines appear, expand toward the viewer,
+  fly offscreen and fade. Reward waits 2.5 seconds before becoming collectible.
+- C opens a pausing atlas with six diagrams and discovery collection; CTRL holds harvesting
+  so players can leave XP fields deliberately. Discovered atlas entries bank after a run.
+- Existing saves remain compatible. No tests wrote to the user's real profile.
+
+Final checks: 108,123 base simulation assertions plus 275 constellation assertions passed;
+Windows x64 build passed. At 250 pickups, 100 bounded searches took about 199.5 ms total
+(~2 ms/search, once per 30 ticks). Six noisy rotated/mirrored patterns, missing/stretched/
+collinear negatives, arena-size shapes, >32-bit rewards, consumption, no recursive rewards,
+learning bonus, grace period and queued level-ups are covered.
+
+Actual Windows player, final seed 12035/core 0, 360 simulated seconds, no fixture:
+1,348 kills, level 29, one boss, four discoveries, two collected rewards/330 base XP,
+390 XP left on the arena, zero errors. Same final build with legal periodic CTRL holds:
+1,387 kills, level 44, one boss, 59 discoveries, 58 rewards/9,270 base XP collected.
+The strategic advantage is intentionally powerful; balance is a future human-feedback topic.
+
+A six-minute real-time pilot on the preceding build found five natural constellations,
+collected all five/750 XP and defeated a boss without errors. Explicit test-only fixtures
+separately verified 15→150 and 21→210 rewards. Real animation and atlas screens inspected
+at 1280×720; fixed atlas line transforms found during visual review. Logs in `Logs/Review003`.
+These are automatic pilots, simulation tests and image review, not human manual play.
+
+Play: `Builds/Windows/Squares.exe`. C: atlas, CTRL: hold XP, TAB: build, WASD: move,
+SPACE: dash, Q: overload, 1/2/3: upgrade, R: one reroll, ESC: pause, F11: fullscreen.
+Source delivered on origin/main; final source tree verified identical to the local commit.
+
+## v0.2.0 — readable skills (historical)
 
 User requested a 30-minute improve/play/improve iteration. Started 19:02:27 UTC;
 minimum finish 19:32:27 UTC. Work continued through the final verification after the deadline.
@@ -86,7 +127,7 @@ The Windows executable remains available locally at `Builds/Windows/Squares.exe`
 
 ## Next iteration
 
-Have the user play v0.2. On an explicit timed request, follow AGENTS.md's real-time
+Have the user play v0.3. On an explicit timed request, follow AGENTS.md's real-time
 protocol and record observations in `docs/playtests/`. Prioritize first-run difficulty and
 upgrade pacing, new run modifiers, and boss tells. The bot currently finds strong builds
 and ends many runs at full hull; this is not proof of good balance or player retention.

@@ -64,6 +64,7 @@ namespace Squares.Editor
             // A maxed-out build still needs three distinct options.
             Check(fallbacks >= 3, "Three choices remain for a capped build");
             CheckNewSkills();
+            ConstellationChecks.Run();
             CheckBossCombat();
             CheckPersistence();
             Debug.Log("SQUARES_CHECKS_PASS assertions=" + assertions);
@@ -86,7 +87,7 @@ namespace Squares.Editor
                     Check(w.Enemies.Count <= World.EnemyCap && w.Bullets.Count <= World.BulletCap && w.Pickups.Count <= World.PickupCap, "Long combat caps");
                 }
                 bossKills += w.Bosses; totalKills += w.Kills;
-                Debug.Log($"SQUARES_BOT seed={seed} seconds={w.Time:F1} kills={w.Kills} level={w.Level} bosses={w.Bosses} hull={w.Hull:F1}");
+                Debug.Log($"SQUARES_BOT seed={seed} seconds={w.Time:F1} kills={w.Kills} level={w.Level} bosses={w.Bosses} hull={w.Hull:F1} constellations={w.ConstellationsFound} star_xp={w.CelestialExperienceCreated}");
             }
             // A stationary reactor must eventually die, and death must stop all future ticks.
             var stationary = new World(311);

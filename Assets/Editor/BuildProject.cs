@@ -37,7 +37,7 @@ namespace Squares.Editor
         {
             PlayerSettings.companyName = "Squares";
             PlayerSettings.productName = "SQUARES OVERLOAD";
-            PlayerSettings.bundleVersion = "0.2.0";
+            PlayerSettings.bundleVersion = "0.3.0";
             PlayerSettings.SetApplicationIdentifier(NamedBuildTarget.Standalone, "games.squares.overload");
             PlayerSettings.defaultScreenWidth = 1600; PlayerSettings.defaultScreenHeight = 900;
             PlayerSettings.fullScreenMode = FullScreenMode.Windowed;

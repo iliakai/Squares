@@ -9,6 +9,7 @@ namespace Squares
     {
         public int version = 1;
         public int flux, totalRuns, bestKills, bestSeconds, selectedCore;
+        public int constellationMask, totalConstellations;
         public bool satelliteUnlocked, conductorUnlocked;
         public int vitality, learning, tempo;
         public bool sound = true, flashes = true;
@@ -35,6 +36,8 @@ namespace Squares
         {
             version = 1; flux = Math.Max(0, Math.Min(10000000, flux));
             totalRuns = Math.Max(0, totalRuns); bestKills = Math.Max(0, bestKills); bestSeconds = Math.Max(0, bestSeconds);
+            constellationMask &= (1 << Squares.Simulation.Constellations.All.Length) - 1;
+            totalConstellations = Math.Max(0, totalConstellations);
             vitality = Math.Max(0, Math.Min(5, vitality)); learning = Math.Max(0, Math.Min(5, learning));
             tempo = Math.Max(0, Math.Min(5, tempo));
             if (selectedCore < 0 || selectedCore > 2 || !Unlocked(selectedCore)) selectedCore = 0;

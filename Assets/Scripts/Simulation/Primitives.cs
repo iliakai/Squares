@@ -35,22 +35,23 @@ namespace Squares.Simulation
     public struct Command
     {
         public V2 Move;
-        public bool Dash, Overload;
-        public Command(V2 move, bool dash = false, bool overload = false)
-        { Move = move; Dash = dash; Overload = overload; }
+        public bool Dash, Overload, HoldExperience;
+        public Command(V2 move, bool dash = false, bool overload = false, bool holdExperience = false)
+        { Move = move; Dash = dash; Overload = overload; HoldExperience = holdExperience; }
     }
 
     public enum RunPhase { Running, Draft, Dead }
     public enum EnemyKind { Chaser, Charger, Sniper, Splitter, Elite, Boss }
-    public enum EffectKind { Shot, Hit, Kill, Hurt, Dash, Arc, Overload, Level, Boss, Pickup, Blast, Chill, Ram }
+    public enum EffectKind { Shot, Hit, Kill, Hurt, Dash, Arc, Overload, Level, Boss, Pickup, Blast, Chill, Ram, Constellation, StarPickup }
     public enum Specialization { None, Siege, Storm, Scout }
     public struct WorldEvent
     {
         public EffectKind Kind;
         public V2 A, B;
         public float Size;
+        public ConstellationDiscovery Discovery;
         public WorldEvent(EffectKind kind, V2 a, V2 b = default, float size = 1)
-        { Kind = kind; A = a; B = b; Size = size; }
+        { Kind = kind; A = a; B = b; Size = size; Discovery = null; }
     }
     public sealed class Enemy
     {
@@ -69,7 +70,9 @@ namespace Squares.Simulation
     }
     public sealed class Pickup
     {
-        public int Id, Value;
+        public int Id, AvailableTick;
+        public long Value;
+        public bool Celestial;
         public V2 Position;
     }
 }

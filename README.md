@@ -3,6 +3,13 @@
 A Unity 6 arena roguelite about building a square reactor under pressure.
 No art packs, round particles, or external gameplay dependencies.
 
+**v0.3 — Созвездия из опыта.** Если белые точки складываются в похожую фигуру известного
+созвездия, загораются линии и название, фигура пролетает за экран, а точки заменяются одним
+золотым сгустком с **10 × их суммарным опытом**. Есть шесть основных рисунков с допуском
+по положению звёзд. **C** — атлас, **CTRL** — временно не притягивать опыт.
+
+![Constellation reward in the Windows player](docs/images/constellations.png)
+
 ![Windows gameplay screenshot](docs/images/gameplay.png)
 
 Version 0.2: Russian skill cards show **before → after**, with descriptions and build hints.
@@ -25,6 +32,8 @@ open `Assets/Scenes/Arena.unity`, and press Play.
 | 1 / 2 / 3 or click | Choose a module |
 | R during a draft | Reroll once per run |
 | Tab | Pause and inspect skills, stats, and synergy recipes |
+| C | Pause and open the constellation atlas |
+| Hold Ctrl | Leave XP on the field instead of attracting/collecting it |
 | Esc | Pause / resume |
 | F11 | Toggle fullscreen |
 

@@ -6,7 +6,7 @@ namespace Squares
     public sealed class SynthAudio
     {
         private readonly AudioSource source;
-        private readonly AudioClip shot, hit, pickup, hurt, level, dash, overload;
+        private readonly AudioClip shot, hit, pickup, hurt, level, dash, overload, stars;
         private float lastShot, lastPickup, lastHit;
         public SynthAudio(GameObject parent)
         {
@@ -18,6 +18,7 @@ namespace Squares
             level = Tone("Level", 430, 980, .3f);
             dash = Tone("Dash", 150, 600, .11f);
             overload = Tone("Overload", 90, 430, .5f);
+            stars = Tone("Constellation", 650, 1850, 1.1f);
         }
         private AudioClip Tone(string name, float from, float to, float duration)
         {
@@ -53,6 +54,8 @@ namespace Squares
                 case EffectKind.Dash: clip = dash; volume = .7f; break;
                 case EffectKind.Overload: clip = overload; break;
                 case EffectKind.Boss: clip = hurt; break;
+                case EffectKind.Constellation: clip = stars; volume = .8f; break;
+                case EffectKind.StarPickup: clip = level; break;
             }
             if (clip != null) source.PlayOneShot(clip, volume);
         }

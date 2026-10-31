@@ -66,3 +66,13 @@ Level five offers a permanent specialization followed by the ordinary skill draf
 Artillery: +60% projectile damage, −15% movement; Storm: unlock lightning, +40% arc and
 +60% satellite damage, −25% projectile damage; Scout: +25% movement, +1.5 pickup radius,
 −20% maximum hull. These have actual simulation effects, not just UI labels.
+
+## Iteration 003: constellations
+
+Ordinary XP dots can match six familiar main-star patterns, with rotation/scale and bounded
+position tolerance. On discovery, only those dots become one golden reward worth ten times
+their summed base XP. The named outline expands and flies out of view; the reward remains.
+Rewards cannot feed another constellation. C opens a pausing atlas; holding CTRL suspends
+harvesting, introducing the choice between immediate levels and a possible larger payout.
+Atlas discovery entries bank at run end. The detection geometry, numeric limits, original
+vector-diagram references, and verification evidence are recorded in specification 003.
