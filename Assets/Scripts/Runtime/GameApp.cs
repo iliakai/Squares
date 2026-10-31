@@ -1,0 +1,394 @@
+using System;
+using System.IO;
+using Squares.Simulation;
+using UnityEngine;
+
+namespace Squares
+{
+    public sealed class GameApp : MonoBehaviour
+    {
+        private enum ScreenMode { Menu, Run, Results }
+        private ScreenMode mode;
+        private World world;
+        private Profile profile;
+        private SaveStore saves;
+        private SquareView view;
+        private SynthAudio audioBus;
+        private bool paused, banked, endedVoluntarily;
+        private float accumulator, uiWidth, uiHeight, uiScale;
+        private GUIStyle label, title, body;
+        private Font font;
+        private int menuFrames, errors, picks;
+        private bool smoke, smokeFinished, screenshotTaken, smokePaused, pausePassed, draftCaptured;
+        private int pauseAtTick, pauseFrames, draftFrames;
+        private float smokeSeconds = 210;
+        private string smokeResult, capturePath;
+        private static readonly Color Text = new Color(.88f, .94f, .97f);
+        private static readonly Color Muted = new Color(.44f, .56f, .65f);
+        private static readonly Color Panel = new Color(.043f, .063f, .095f, .98f);
+        private static readonly Color LineColor = new Color(.13f, .21f, .27f);
+        private static readonly string[] CoreNames = { "STRIKER", "SATELLITE", "CONDUCTOR" };
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
+        private static void Boot()
+        {
+            if (FindFirstObjectByType<GameApp>() == null) new GameObject("SQUARES // OVERLOAD").AddComponent<GameApp>();
+        }
+        private void Awake()
+        {
+            Application.targetFrameRate = 120;
+            QualitySettings.vSyncCount = 0;
+            Application.runInBackground = true;
+            Application.logMessageReceived += OnLog;
+            string[] args = Environment.GetCommandLineArgs();
+            smoke = Array.IndexOf(args, "-squares-smoke") >= 0;
+            smokeResult = Argument(args, "-smoke-result"); capturePath = Argument(args, "-capture");
+            if (float.TryParse(Argument(args, "-smoke-seconds"), System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out float duration)) smokeSeconds = Mathf.Clamp(duration, 20, 1200);
+            string root = Path.GetDirectoryName(Application.dataPath);
+            saves = new SaveStore(Path.Combine(root, smoke ? "Temp/SmokeSave" : "Saves"));
+            profile = smoke ? new Profile() : saves.Load();
+            font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            view = new SquareView(transform); audioBus = new SynthAudio(gameObject);
+            Debug.Log("SQUARES_BOOT_OK version=0.1.0 smoke=" + smoke);
+        }
+        private static string Argument(string[] args, string key)
+        { int i = Array.IndexOf(args, key); return i >= 0 && i + 1 < args.Length ? args[i + 1] : null; }
+        private void OnLog(string condition, string trace, LogType type)
+        { if (type == LogType.Error || type == LogType.Exception || type == LogType.Assert) errors++; }
+        private void OnDestroy() { Application.logMessageReceived -= OnLog; }
+
+        private void Update()
+        {
+            if (Input.GetKeyDown(KeyCode.F11)) UnityEngine.Screen.fullScreen = !UnityEngine.Screen.fullScreen;
+            if (smoke) { SmokeUpdate(); Render(); return; }
+            if (mode == ScreenMode.Menu)
+            {
+                if (Input.GetKeyDown(KeyCode.Return)) StartRun();
+            }
+            else if (mode == ScreenMode.Results)
+            {
+                if (Input.GetKeyDown(KeyCode.Return)) { mode = ScreenMode.Menu; world = null; view.ClearEffects(); }
+            }
+            else
+            {
+                if (Input.GetKeyDown(KeyCode.Escape)) { paused = !paused; accumulator = 0; }
+                if (!paused && world.Phase == RunPhase.Draft)
+                {
+                    if (Input.GetKeyDown(KeyCode.Alpha1) || Input.GetKeyDown(KeyCode.Keypad1)) Pick(0);
+                    else if (Input.GetKeyDown(KeyCode.Alpha2) || Input.GetKeyDown(KeyCode.Keypad2)) Pick(1);
+                    else if (Input.GetKeyDown(KeyCode.Alpha3) || Input.GetKeyDown(KeyCode.Keypad3)) Pick(2);
+                    accumulator = 0;
+                }
+                else if (!paused && world.Phase == RunPhase.Running)
+                {
+                    float x = (Held(KeyCode.D, KeyCode.RightArrow) ? 1 : 0) - (Held(KeyCode.A, KeyCode.LeftArrow) ? 1 : 0);
+                    float y = (Held(KeyCode.W, KeyCode.UpArrow) ? 1 : 0) - (Held(KeyCode.S, KeyCode.DownArrow) ? 1 : 0);
+                    var command = new Command(new V2(x, y), Input.GetKey(KeyCode.Space) || Input.GetKey(KeyCode.LeftShift), Input.GetKey(KeyCode.Q));
+                    accumulator = Mathf.Min(accumulator + Time.unscaledDeltaTime, World.Dt * 8);
+                    while (accumulator >= World.Dt && world.Phase == RunPhase.Running)
+                    { Tick(command); accumulator -= World.Dt; }
+                    if (world.Phase == RunPhase.Dead) EndRun(false);
+                }
+            }
+            Render();
+        }
+        private static bool Held(KeyCode a, KeyCode b) => Input.GetKey(a) || Input.GetKey(b);
+        private void Render() => view.Render(world, Mathf.Min(.05f, Time.unscaledDeltaTime),
+            mode != ScreenMode.Run || (!paused && world.Phase == RunPhase.Running), profile.flashes);
+        private void Tick(Command command)
+        {
+            world.Step(command);
+            foreach (WorldEvent e in world.Events)
+            { view.Event(e, profile.flashes); audioBus.Event(e, profile.sound && !smoke); }
+        }
+        private void StartRun()
+        {
+            uint seed = smoke ? 735193u : unchecked((uint)DateTime.UtcNow.Ticks);
+            world = new World(seed, profile.selectedCore, profile.vitality, profile.learning, profile.tempo);
+            mode = ScreenMode.Run; paused = banked = false; accumulator = 0; picks = 0; view.ClearEffects();
+        }
+        private void Pick(int index)
+        { if (world.Choose(index)) { picks++; accumulator = 0; } }
+        private void EndRun(bool voluntary)
+        {
+            if (banked) return;
+            banked = true; endedVoluntarily = voluntary; mode = ScreenMode.Results; paused = false;
+            profile.flux += world.EarnedFlux; profile.totalRuns++;
+            profile.bestKills = Math.Max(profile.bestKills, world.Kills);
+            profile.bestSeconds = Math.Max(profile.bestSeconds, (int)world.Time);
+            if (!smoke) saves.Save(profile);
+        }
+
+        private void OnGUI()
+        {
+            uiScale = Mathf.Min(UnityEngine.Screen.width / 1600f, UnityEngine.Screen.height / 900f);
+            uiWidth = UnityEngine.Screen.width / uiScale; uiHeight = UnityEngine.Screen.height / uiScale;
+            GUI.matrix = Matrix4x4.Scale(Vector3.one * uiScale);
+            if (label == null)
+            {
+                label = new GUIStyle(GUI.skin.label) { font = font, fontSize = 18, richText = false,
+                    clipping = TextClipping.Clip, padding = new RectOffset(0, 0, 0, 0) };
+                title = new GUIStyle(label) { fontStyle = FontStyle.Bold };
+                body = new GUIStyle(label) { wordWrap = true };
+            }
+            if (mode == ScreenMode.Menu) Menu();
+            else
+            {
+                Hud();
+                if (mode == ScreenMode.Results) Results();
+                else if (paused) PauseMenu();
+                else if (world.Phase == RunPhase.Draft) Draft();
+            }
+            if (!string.IsNullOrEmpty(saves.Error))
+                TextAt(new Rect(28, uiHeight - 30, uiWidth - 56, 25), saves.Error, 14, SquareView.Gold);
+            GUI.matrix = Matrix4x4.identity;
+        }
+
+        private void Menu()
+        {
+            Fill(new Rect(0, 0, uiWidth, uiHeight), new Color(.025f, .037f, .065f, .96f));
+            float left = (uiWidth - 1360) / 2;
+            TextAt(new Rect(left, 48, 750, 30), "A REACTOR. AN ARENA. A THOUSAND BUILDS.", 15, SquareView.Mint);
+            TextAt(new Rect(left - 4, 94, 760, 100), "SQUARES", 90, Text, true);
+            TextAt(new Rect(left, 202, 750, 55), "// OVERLOAD", 42, SquareView.Mint, true);
+            TextAt(new Rect(left + 890, 61, 470, 30), "PROTOTYPE  0.1     /     SOLO REACTOR", 15, Muted, false, TextAnchor.UpperRight);
+            TextAt(new Rect(left + 940, 124, 420, 60), profile.flux + "  FLUX", 44, SquareView.Gold, true, TextAnchor.UpperRight);
+            TextAt(new Rect(left + 960, 198, 400, 40), "BEST  " + Clock(profile.bestSeconds) + "   /   " + profile.bestKills + " KILLS", 17, Muted, false, TextAnchor.UpperRight);
+            Fill(new Rect(left, 284, 1360, 1), LineColor);
+            TextAt(new Rect(left, 308, 800, 28), "01  /  SELECT YOUR REACTOR", 16, Muted);
+            string[] descriptions = {
+                "PRECISION / TEMPO\nKinetic array + rapid cycle.\nDirect fire, fast decisions.",
+                "PROXIMITY / CONTROL\nKinetic array + orbiting satellite.\nTurn close calls into damage.",
+                "CHAIN / CASCADE\nKinetic array + lightning relay.\nBreak a crowd from the inside."
+            };
+            for (int i = 0; i < 3; i++)
+            {
+                float x = left + i * 462;
+                bool unlocked = profile.Unlocked(i), selected = profile.selectedCore == i;
+                Color accent = i == 0 ? SquareView.Mint : i == 1 ? SquareView.Blue : SquareView.Gold;
+                PanelAt(new Rect(x, 352, 436, 218), selected ? accent : LineColor);
+                Fill(new Rect(x + 22, 374, 28, 28), accent);
+                Fill(new Rect(x + 29, 381, 14, 14), Panel);
+                TextAt(new Rect(x + 64, 372, 345, 35), CoreNames[i], 25, Text, true);
+                TextAt(new Rect(x + 22, 423, 392, 82), descriptions[i], 18, Muted, wrap: true);
+                string action = unlocked ? selected ? "SELECTED" : "SELECT REACTOR" : "UNLOCK / " + (i == 1 ? 35 : 60) + " FLUX";
+                if (ButtonAt(new Rect(x + 22, 520, 392, 32), action, accent,
+                    unlocked || profile.flux >= (i == 1 ? 35 : 60)))
+                {
+                    if (unlocked || profile.BuyCore(i)) { profile.selectedCore = i; saves.Save(profile); }
+                }
+            }
+            TextAt(new Rect(left, 598, 1360, 28), "02  /  PERSISTENT RESEARCH", 16, Muted);
+            string[] researchNames = { "HULL", "DATA", "VECTOR" };
+            string[] researchDesc = { "+10 starting hull", "+8% experience", "+3% movement" };
+            for (int i = 0; i < 3; i++)
+            {
+                float x = left + i * 462;
+                PanelAt(new Rect(x, 636, 436, 86), LineColor);
+                int rank = profile.ResearchRank(i);
+                TextAt(new Rect(x + 16, 648, 230, 24), researchNames[i] + "  " + rank + "/5", 18, Text, true);
+                TextAt(new Rect(x + 16, 678, 230, 24), researchDesc[i], 16, Muted);
+                if (ButtonAt(new Rect(x + 260, 654, 160, 48), rank >= 5 ? "MAX" : profile.ResearchCost(i) + " FLUX",
+                    SquareView.Gold, rank < 5 && profile.flux >= profile.ResearchCost(i)))
+                    if (profile.BuyResearch(i)) saves.Save(profile);
+            }
+            TextAt(new Rect(left, uiHeight - 134, 800, 34), "WASD  MOVE     SPACE  DASH     Q  OVERLOAD", 18, Text);
+            TextAt(new Rect(left, uiHeight - 95, 840, 54), "Auto-fire. Collect data. Choose modules. Survive the first boss at 03:00.\nBank flux after a run. Come back with a different build.", 16, Muted, wrap: true);
+            if (ButtonAt(new Rect(left + 940, uiHeight - 136, 420, 70), "ENTER THE ARENA   [ ENTER ]", SquareView.Mint)) StartRun();
+            TextAt(new Rect(left + 940, uiHeight - 49, 420, 24), "F11 FULLSCREEN   /   ESC PAUSE   /   v0.1", 14, Muted, false, TextAnchor.UpperRight);
+        }
+
+        private void Hud()
+        {
+            Fill(new Rect(0, 0, uiWidth, 82), new Color(.025f, .037f, .065f, .97f));
+            Fill(new Rect(0, 81, uiWidth, 1), LineColor);
+            TextAt(new Rect(28, 16, 270, 24), "SQUARES  //  " + CoreNames[world.Core], 16, SquareView.Mint, true);
+            TextAt(new Rect(28, 48, 270, 24), "SECTOR " + world.Sector.ToString("00") + "   /   LV " + world.Level.ToString("00"), 15, Muted);
+            TextAt(new Rect(340, 13, 340, 25), "HULL  " + Mathf.CeilToInt(world.Hull) + " / " + (int)world.MaxHull, 16, Text);
+            Bar(new Rect(340, 47, 300, 7), world.Hull / world.MaxHull, world.Hull < 30 ? SquareView.Red : SquareView.Mint);
+            TextAt(new Rect(uiWidth / 2 - 80, 14, 160, 46), Clock(world.Time), 34, Text, true, TextAnchor.UpperCenter);
+            TextAt(new Rect(uiWidth - 560, 17, 250, 24), world.Kills + " KILLS   /   " + world.EarnedFlux + " FLUX", 16, Text);
+            TextAt(new Rect(uiWidth - 560, 48, 250, 24), world.Bosses > 0 ? world.Bosses + " BOSS CLEARED / ENDLESS" : "BOSS IN " + Clock(Mathf.Max(0, 180 - world.Time)), 14, Muted);
+            if (ButtonAt(new Rect(uiWidth - 230, 20, 200, 40), "PAUSE  [ ESC ]", Muted)) paused = !paused;
+            Bar(new Rect(0, 82, uiWidth, 3), world.XP / world.NextLevelXP, SquareView.Blue);
+
+            float bottom = uiHeight - 84;
+            Fill(new Rect(0, bottom, uiWidth, 84), new Color(.025f, .037f, .065f, .97f));
+            Fill(new Rect(0, bottom, uiWidth, 1), LineColor);
+            TextAt(new Rect(28, bottom + 15, 230, 24), world.DashCooldown <= 0 ? "SPACE  /  PHASE READY" : "PHASE  /  " + world.DashCooldown.ToString("F1") + "s", 15, Text);
+            Bar(new Rect(28, bottom + 50, 200, 4), 1 - world.DashCooldown / world.DashPeriod, SquareView.Mint);
+            TextAt(new Rect(270, bottom + 15, 300, 24), world.Charge >= 100 ? "Q  /  OVERLOAD READY" : "OVERLOAD  /  " + (int)world.Charge + "%", 15, world.Charge >= 100 ? SquareView.Gold : Text);
+            Bar(new Rect(270, bottom + 50, 250, 4), world.Charge / 100, SquareView.Gold);
+            string modules = "KINETIC " + world.Rank(Module.Kinetic) + "   /   ORBIT " + world.Rank(Module.Satellite) + "   /   ARC " + world.Rank(Module.Arc);
+            TextAt(new Rect(590, bottom + 15, 570, 24), modules, 16, Text);
+            string synergy = world.HasStorm ? "SYNERGY  /  ION STORM: +2 CHAINS, +30% ORBIT" : world.HasShatter ? "SYNERGY  /  SHATTER: PROJECTILE KNOCKBACK" : "COMBINE ARC 2 + SATELLITE 2 TO FORM ION STORM";
+            TextAt(new Rect(590, bottom + 48, 670, 24), synergy, 13, world.HasStorm || world.HasShatter ? SquareView.Gold : Muted);
+            if (world.Combo > 1) TextAt(new Rect(uiWidth - 260, bottom + 17, 230, 43), "x" + world.Combo + " COMBO", 25, SquareView.Mint, true, TextAnchor.UpperRight);
+            else TextAt(new Rect(uiWidth - 260, bottom + 24, 230, 30), "WASD MOVE / AUTO FIRE", 13, Muted, false, TextAnchor.UpperRight);
+            foreach (Enemy e in world.Enemies)
+                if (e.Kind == EnemyKind.Boss)
+                {
+                    TextAt(new Rect(uiWidth / 2 - 270, 100, 540, 24), "THE DIVISOR  //  SECTOR GUARDIAN", 15, SquareView.Red, true, TextAnchor.UpperCenter);
+                    Bar(new Rect(uiWidth / 2 - 270, 131, 540, 6), e.HP / e.MaxHP, SquareView.Red); break;
+                }
+            if (world.Time < 10 && world.Phase == RunPhase.Running && !paused && mode == ScreenMode.Run)
+            {
+                TextAt(new Rect(uiWidth / 2 - 430, uiHeight - 155, 860, 26), "COLLECT WHITE DATA SQUARES TO LEVEL UP  /  KEEP MOVING", 17, Muted, false, TextAnchor.UpperCenter);
+            }
+            if (world.OverloadTime > 0)
+                TextAt(new Rect(uiWidth / 2 - 300, uiHeight - 128, 600, 30), "// OVERLOAD ACTIVE //", 19, SquareView.Gold, true, TextAnchor.UpperCenter);
+        }
+
+        private void Draft()
+        {
+            Shade();
+            float x = (uiWidth - 1236) / 2, y = (uiHeight - 436) / 2;
+            TextAt(new Rect(x, y - 84, 1236, 38), "EVOLVE YOUR REACTOR", 34, Text, true);
+            TextAt(new Rect(x, y - 35, 1236, 30), "LEVEL " + world.Level + "   /   CHOOSE ONE MODULE   /   TIME IS FROZEN", 16, SquareView.Mint);
+            for (int i = 0; i < 3; i++)
+            {
+                Upgrade u = Upgrades.All[(int)world.Choices[i]];
+                float cx = x + i * 420;
+                Color accent = u.Category == "SURVIVAL" ? SquareView.Mint : u.Category == "WEAPON" ? SquareView.Gold : SquareView.Blue;
+                Rect card = new Rect(cx, y + 24, 396, 348);
+                PanelAt(card, accent);
+                TextAt(new Rect(cx + 25, y + 49, 346, 30), "0" + (i + 1) + "  /  " + u.Category, 16, accent);
+                TextAt(new Rect(cx + 25, y + 106, 346, 65), u.Name, 28, Text, true, wrap: true);
+                int rank = world.Rank(u.Id);
+                TextAt(new Rect(cx + 25, y + 185, 346, 28), u.Id == Module.Repair ? "INSTANT RECOVERY" : "RANK " + rank + " > " + (rank + 1) + (u.MaxRank > 0 ? "  /  MAX " + u.MaxRank : "  /  UNLIMITED"), 15, accent);
+                TextAt(new Rect(cx + 25, y + 228, 346, 65), u.Description, 20, Muted, wrap: true);
+                if (ButtonAt(new Rect(cx + 25, y + 307, 346, 42), "INSTALL  [ " + (i + 1) + " ]", accent)) { Pick(i); break; }
+            }
+            TextAt(new Rect(x, y + 400, 1236, 50), "ION STORM: ARC 2 + SATELLITE 2     /     SHATTER: PIERCE 1 + MULTISHOT 2", 15, Muted);
+        }
+        private void PauseMenu()
+        {
+            Shade(); float x = (uiWidth - 580) / 2, y = (uiHeight - 470) / 2;
+            PanelAt(new Rect(x, y, 580, 470), SquareView.Mint);
+            TextAt(new Rect(x + 36, y + 32, 508, 50), "REACTOR SUSPENDED", 32, Text, true);
+            TextAt(new Rect(x + 36, y + 95, 508, 60), "WASD move / SPACE dash / Q overload\nWeapons fire automatically. 1 / 2 / 3 pick modules.", 18, Muted, wrap: true);
+            if (ButtonAt(new Rect(x + 36, y + 178, 508, 52), "RESUME  [ ESC ]", SquareView.Mint)) { paused = false; accumulator = 0; }
+            if (ButtonAt(new Rect(x + 36, y + 251, 245, 43), "SOUND  " + (profile.sound ? "ON" : "OFF"), Muted))
+            { profile.sound = !profile.sound; saves.Save(profile); }
+            if (ButtonAt(new Rect(x + 299, y + 251, 245, 43), "SHAKE  " + (profile.flashes ? "ON" : "OFF"), Muted))
+            { profile.flashes = !profile.flashes; saves.Save(profile); }
+            TextAt(new Rect(x + 36, y + 317, 508, 28), "END THIS EXPEDITION AND BANK " + world.EarnedFlux + " FLUX", 15, Muted);
+            if (ButtonAt(new Rect(x + 36, y + 362, 508, 52), "BANK & END RUN", SquareView.Gold)) EndRun(true);
+        }
+        private void Results()
+        {
+            Shade(); float x = (uiWidth - 900) / 2, y = (uiHeight - 550) / 2;
+            PanelAt(new Rect(x, y, 900, 550), SquareView.Mint);
+            TextAt(new Rect(x + 42, y + 35, 816, 28), "EXPEDITION ARCHIVE  /  SEED " + world.Seed, 15, Muted);
+            TextAt(new Rect(x + 42, y + 90, 816, 62), endedVoluntarily ? "REACTOR EXTRACTED" : "REACTOR OFFLINE", 46, Text, true);
+            TextAt(new Rect(x + 42, y + 166, 816, 40), "THE NEXT BUILD WILL BE DIFFERENT.", 18, SquareView.Mint);
+            string[] names = { "SURVIVED", "KILLS", "LEVEL", "BOSSES" };
+            string[] values = { Clock(world.Time), world.Kills.ToString(), world.Level.ToString(), world.Bosses.ToString() };
+            for (int i = 0; i < 4; i++)
+            {
+                TextAt(new Rect(x + 42 + i * 210, y + 244, 190, 25), names[i], 15, Muted);
+                TextAt(new Rect(x + 42 + i * 210, y + 281, 190, 60), values[i], 40, Text, true);
+            }
+            TextAt(new Rect(x + 42, y + 372, 816, 45), "+ " + world.EarnedFlux + " FLUX BANKED", 29, SquareView.Gold, true);
+            if (ButtonAt(new Rect(x + 42, y + 446, 816, 62), "RETURN TO REACTOR BAY  [ ENTER ]", SquareView.Mint))
+            { mode = ScreenMode.Menu; world = null; view.ClearEffects(); }
+        }
+
+        private void Shade() => Fill(new Rect(0, 0, uiWidth, uiHeight), new Color(.012f, .02f, .04f, .86f));
+        private void PanelAt(Rect r, Color border)
+        { Fill(r, border); Fill(new Rect(r.x + 1, r.y + 1, r.width - 2, r.height - 2), Panel); }
+        private static void Fill(Rect r, Color c)
+        { GUI.color = c; GUI.DrawTexture(r, Texture2D.whiteTexture); GUI.color = Color.white; }
+        private void Bar(Rect r, float value, Color c)
+        { Fill(r, LineColor); Fill(new Rect(r.x, r.y, r.width * Mathf.Clamp01(value), r.height), c); }
+        private void TextAt(Rect rect, string text, int size, Color color, bool bold = false,
+            TextAnchor anchor = TextAnchor.UpperLeft, bool wrap = false)
+        {
+            GUIStyle style = wrap ? body : bold ? title : label;
+            style.fontSize = size; style.fontStyle = bold ? FontStyle.Bold : FontStyle.Normal;
+            style.alignment = anchor; style.normal.textColor = color;
+            GUI.Label(rect, text, style);
+        }
+        private bool ButtonAt(Rect rect, string text, Color accent, bool enabled = true)
+        {
+            bool hover = enabled && rect.Contains(Event.current.mousePosition);
+            Fill(rect, enabled ? hover ? new Color(accent.r * .3f, accent.g * .3f, accent.b * .3f) : new Color(accent.r * .13f, accent.g * .13f, accent.b * .13f) : new Color(.055f, .075f, .10f));
+            Fill(new Rect(rect.x, rect.yMax - 2, rect.width, 2), enabled ? accent : LineColor);
+            TextAt(new Rect(rect.x + 8, rect.y + (rect.height - 20) / 2, rect.width - 16, 24), text, 16,
+                enabled ? hover ? Color.white : accent : Muted, true, TextAnchor.UpperCenter);
+            if (enabled && Event.current.type == EventType.MouseDown && Event.current.button == 0 && hover)
+            { Event.current.Use(); return true; }
+            return false;
+        }
+        private static string Clock(float seconds)
+        { int s = Mathf.Max(0, (int)seconds); return (s / 60).ToString("00") + ":" + (s % 60).ToString("00"); }
+
+        private void SmokeUpdate()
+        {
+            if (smokeFinished) return;
+            if (mode == ScreenMode.Menu)
+            {
+                menuFrames++;
+                if (menuFrames == 3) CaptureState("menu");
+                if (menuFrames >= 6) StartRun();
+                return;
+            }
+            if (!smokePaused && world.Ticks >= 720)
+            { smokePaused = true; paused = true; pauseAtTick = world.Ticks; }
+            if (paused)
+            {
+                if (pauseFrames == 1) CaptureState("pause");
+                if (++pauseFrames < 4) return;
+                pausePassed = world.Ticks == pauseAtTick; paused = false;
+            }
+            if (world.Phase == RunPhase.Draft)
+            {
+                if (!draftCaptured && draftFrames == 1) { CaptureState("draft"); draftCaptured = true; }
+                if (++draftFrames > 2) { Pick(AutoPilot.Pick(world)); draftFrames = 0; }
+                return;
+            }
+            for (int i = 0; i < 24 && world.Phase == RunPhase.Running && world.Time < smokeSeconds; i++)
+                Tick(AutoPilot.Input(world));
+            if (!screenshotTaken && world.Time >= 45 && world.Phase == RunPhase.Running && !string.IsNullOrEmpty(capturePath))
+            {
+                string dir = Path.GetDirectoryName(capturePath);
+                if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+                ScreenCapture.CaptureScreenshot(capturePath); screenshotTaken = true;
+            }
+            if (world.Phase == RunPhase.Dead || world.Time >= smokeSeconds)
+            {
+                EndRun(world.Phase != RunPhase.Dead);
+                CaptureState("results");
+                smokeFinished = true; Invoke(nameof(WriteSmokeResult), .5f);
+            }
+        }
+        private void CaptureState(string name)
+        {
+            if (string.IsNullOrEmpty(capturePath)) return;
+            string directory = Path.GetDirectoryName(capturePath);
+            if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
+            ScreenCapture.CaptureScreenshot(Path.Combine(directory, name + ".png"));
+        }
+        [Serializable]
+        private sealed class SmokeReport
+        {
+            public bool passed, pausePassed, screenshotRequested;
+            public int errors, ticks, kills, level, bosses, picks, flux;
+            public float seconds, hull;
+            public string fingerprint;
+        }
+        private void WriteSmokeResult()
+        {
+            var report = new SmokeReport { passed = errors == 0 && pausePassed && picks >= 3 && world.Kills >= 20 && world.Time >= 30,
+                pausePassed = pausePassed, screenshotRequested = screenshotTaken, errors = errors, ticks = world.Ticks,
+                kills = world.Kills, level = world.Level, bosses = world.Bosses, picks = picks, flux = world.EarnedFlux,
+                seconds = world.Time, hull = world.Hull, fingerprint = world.Fingerprint().ToString() };
+            string json = JsonUtility.ToJson(report, true);
+            if (!string.IsNullOrEmpty(smokeResult))
+            { Directory.CreateDirectory(Path.GetDirectoryName(smokeResult)); File.WriteAllText(smokeResult, json); }
+            Debug.Log("SQUARES_SMOKE_" + (report.passed ? "PASS " : "FAIL ") + json);
+            Application.Quit(report.passed ? 0 : 1);
+        }
+    }
+}

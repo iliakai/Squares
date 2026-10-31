@@ -1,0 +1,5 @@
+{
+  "name": "Squares.Runtime",
+  "rootNamespace": "Squares",
+  "references": ["Squares.Simulation"]
+}

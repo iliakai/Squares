@@ -1,0 +1,6 @@
+{
+  "name": "Squares.Editor",
+  "rootNamespace": "Squares.Editor",
+  "references": ["Squares.Simulation", "Squares.Runtime"],
+  "includePlatforms": ["Editor"]
+}
