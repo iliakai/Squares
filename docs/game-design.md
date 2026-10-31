@@ -52,3 +52,17 @@ retry, persistent progression, generated audio, settings, reproducible checks, W
 Next: balancing from actual play, run mutators, more boss patterns, controller support.
 Networked play, module placement editor, cloud saves, localization, and achievements are
 future work. The initial module layout is visual; freeform construction is not yet implemented.
+
+## Iteration 002: readable choices
+
+v0.2 replaces the prototype English interface with Russian descriptions and numerical
+before/after previews computed from actual combat stats. TAB pauses and exposes the full
+build and synergy requirements. One free reroll per run guarantees a new alternative.
+Explosive bullets damage neighbors, cold bullets slow (half effect on bosses), and ram
+deals one hit to each enemy crossed during a dash. Blast 2 + Frost 2 unlock Icebreak:
+explosions deal 50% more damage to slowed neighbors.
+
+Level five offers a permanent specialization followed by the ordinary skill draft:
+Artillery: +60% projectile damage, −15% movement; Storm: unlock lightning, +40% arc and
++60% satellite damage, −25% projectile damage; Scout: +25% movement, +1.5 pickup radius,
+−20% maximum hull. These have actual simulation effects, not just UI labels.

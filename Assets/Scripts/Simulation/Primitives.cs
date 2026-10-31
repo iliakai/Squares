@@ -42,7 +42,8 @@ namespace Squares.Simulation
 
     public enum RunPhase { Running, Draft, Dead }
     public enum EnemyKind { Chaser, Charger, Sniper, Splitter, Elite, Boss }
-    public enum EffectKind { Shot, Hit, Kill, Hurt, Dash, Arc, Overload, Level, Boss, Pickup }
+    public enum EffectKind { Shot, Hit, Kill, Hurt, Dash, Arc, Overload, Level, Boss, Pickup, Blast, Chill, Ram }
+    public enum Specialization { None, Siege, Storm, Scout }
     public struct WorldEvent
     {
         public EffectKind Kind;
@@ -56,7 +57,7 @@ namespace Squares.Simulation
         public int Id;
         public EnemyKind Kind;
         public V2 Position, Heading;
-        public float HP, MaxHP, Size, Speed, Timer, Windup, Rush, OrbitHit;
+        public float HP, MaxHP, Size, Speed, Timer, Windup, Rush, OrbitHit, SlowTime, SlowFactor;
     }
     public sealed class Bullet
     {

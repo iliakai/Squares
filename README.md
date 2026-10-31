@@ -5,6 +5,13 @@ No art packs, round particles, or external gameplay dependencies.
 
 ![Windows gameplay screenshot](docs/images/gameplay.png)
 
+Version 0.2: Russian skill cards show **before → after**, with descriptions and build hints.
+New skills: explosive bullets, slowing bullets, and dash impact. At level five choose one
+specialization with an advantage and a drawback. TAB shows your complete build and three
+synergy recipes; each run includes one free upgrade reroll.
+
+![Skill cards with actual before and after stats](docs/images/skills.png)
+
 ## Play
 
 Run `Builds/Windows/Squares.exe`, or open this directory in Unity **6000.3.26f1**,
@@ -16,6 +23,8 @@ open `Assets/Scenes/Arena.unity`, and press Play.
 | Space / Shift | Dash through danger |
 | Q | Activate OVERLOAD when charged |
 | 1 / 2 / 3 or click | Choose a module |
+| R during a draft | Reroll once per run |
+| Tab | Pause and inspect skills, stats, and synergy recipes |
 | Esc | Pause / resume |
 | F11 | Toggle fullscreen |
 

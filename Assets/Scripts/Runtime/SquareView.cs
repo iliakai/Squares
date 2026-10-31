@@ -8,6 +8,7 @@ namespace Squares
     {
         private readonly List<SpriteRenderer> pool = new List<SpriteRenderer>();
         private readonly List<Particle> particles = new List<Particle>();
+        private readonly List<Pulse> pulses = new List<Pulse>();
         private readonly Transform root;
         private readonly Sprite sprite;
         private int used;
@@ -18,6 +19,7 @@ namespace Squares
         public static readonly Color Gold = new Color(1, .75f, .32f);
         public static readonly Color Red = new Color(1, .29f, .4f);
         private struct Particle { public Vector2 P, V; public float Age, Life, Size; public Color Color; }
+        private struct Pulse { public Vector2 P; public float Age, Radius; }
 
         public SquareView(Transform parent)
         {
@@ -33,11 +35,13 @@ namespace Squares
         }
 
         private static Vector2 Vec(V2 v) => new Vector2(v.X, v.Y);
-        public void ClearEffects() { particles.Clear(); shake = 0; }
+        public void ClearEffects() { particles.Clear(); pulses.Clear(); shake = 0; }
         public void Event(WorldEvent e, bool flashes)
         {
             if (e.Kind == EffectKind.Pickup || e.Kind == EffectKind.Shot) return;
-            Color color = e.Kind == EffectKind.Hurt ? Red : e.Kind == EffectKind.Arc ? Blue : Mint;
+            if (e.Kind == EffectKind.Blast && pulses.Count < 100) pulses.Add(new Pulse { P = Vec(e.A), Radius = e.Size });
+            Color color = e.Kind == EffectKind.Hurt ? Red : e.Kind == EffectKind.Arc || e.Kind == EffectKind.Chill ? Blue :
+                e.Kind == EffectKind.Blast || e.Kind == EffectKind.Ram ? Gold : Mint;
             int count = e.Kind == EffectKind.Kill ? 8 : e.Kind == EffectKind.Overload ? 70 : 4;
             if (e.Kind == EffectKind.Arc)
             {
@@ -79,6 +83,13 @@ namespace Squares
                 Box(new Vector2(x, 9.7f), new Vector2(.12f, .23f), edge);
             }
             if (world != null) DrawWorld(world);
+            for (int i = pulses.Count - 1; i >= 0; i--)
+            {
+                Pulse p = pulses[i]; if (animate) p.Age += dt;
+                if (p.Age > .22f) { pulses.RemoveAt(i); continue; }
+                Color c = Gold; c.a = (1 - p.Age / .22f) * .55f;
+                Frame(p.P, p.Radius * 2, .055f, c); pulses[i] = p;
+            }
             for (int i = particles.Count - 1; i >= 0; i--)
             {
                 Particle p = particles[i];
@@ -101,6 +112,11 @@ namespace Squares
             foreach (Enemy e in w.Enemies)
             {
                 Color c = EnemyColor(e.Kind); Vector2 pos = Vec(e.Position);
+                if (e.SlowTime > 0)
+                {
+                    c = Color.Lerp(c, Blue, .75f);
+                    Frame(pos, e.Size * 2 + .16f, .035f, new Color(.4f, .8f, 1, .65f));
+                }
                 if (e.Windup > 0)
                 {
                     Line(pos, pos + Vec(e.Heading) * 6.5f, .08f, new Color(1, .55f, .2f, .3f));
@@ -124,7 +140,7 @@ namespace Squares
             }
             foreach (Bullet b in w.Bullets)
             {
-                Color c = b.Hostile ? Red : Mint;
+                Color c = b.Hostile ? Red : w.Rank(Module.Frost) > 0 ? Blue : w.Rank(Module.Blast) > 0 ? Gold : Mint;
                 Vector2 p = Vec(b.Position);
                 Box(p - Vec(b.Velocity).normalized * .12f, Vector2.one * b.Size * 3.3f, new Color(c.r, c.g, c.b, .12f));
                 Box(p, Vector2.one * b.Size * 2, c);
@@ -133,7 +149,7 @@ namespace Squares
             if (w.OverloadTime > 0) Frame(player, 1.25f, .055f, Gold);
             if (w.DashTime > 0)
                 for (int i = 1; i <= 4; i++)
-                    Box(player - Vec(w.Facing) * i * .35f, Vector2.one * (.75f - i * .08f), new Color(.4f, 1, .8f, .25f / i));
+                    Box(player - Vec(w.Facing) * i * .35f, Vector2.one * (.75f - i * .08f), w.Rank(Module.Ram) > 0 ? new Color(1, .75f, .3f, .5f / i) : new Color(.4f, 1, .8f, .25f / i));
             Color body = w.Invincible > 0 && (int)(w.Time * 30) % 2 == 0 ? Color.white : Mint;
             Frame(player, 1.06f, .055f, new Color(.3f, 1, .8f, .22f));
             Box(player, Vector2.one * .76f, body);

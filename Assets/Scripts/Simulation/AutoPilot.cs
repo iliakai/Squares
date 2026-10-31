@@ -36,8 +36,9 @@ namespace Squares.Simulation
             if (Math.Abs(w.Position.Y) > 7.5f) movement.Y -= Math.Sign(w.Position.Y) * 2;
             return new Command(movement.Normalized, danger < 1.6f, w.Charge >= 100);
         }
-        public static int Pick(World w)
+        public static int Pick(World w, int style = 0)
         {
+            if (w.IsSpecializationDraft) return style == 1 ? 0 : style == 3 ? 2 : 1;
             int best = 0; float score = -10000;
             for (int i = 0; i < 3; i++)
             {
@@ -52,6 +53,11 @@ namespace Squares.Simulation
                 if (id == Module.Magnet && w.Rank(id) < 2) s += 24;
                 if (id == Module.OrbitPower && w.Rank(Module.Satellite) >= 2) s += 20;
                 if (id == Module.Thrusters && w.Rank(id) < 2) s += 20;
+                if (id == Module.Blast || id == Module.Frost) s += 22;
+                if (id == Module.Ram) s += 12;
+                if (style == 1 && (id == Module.Multishot || id == Module.Blast || id == Module.Pierce || id == Module.Kinetic)) s += 35;
+                if (style == 2 && (id == Module.Satellite || id == Module.OrbitPower || id == Module.Arc || id == Module.Chain)) s += 35;
+                if (style == 3 && (id == Module.Ram || id == Module.Dash || id == Module.Frost || id == Module.Thrusters)) s += 35;
                 if (s > score) { score = s; best = i; }
             }
             return best;

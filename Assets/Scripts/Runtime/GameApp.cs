@@ -5,7 +5,7 @@ using UnityEngine;
 
 namespace Squares
 {
-    public sealed class GameApp : MonoBehaviour
+    public sealed partial class GameApp : MonoBehaviour
     {
         private enum ScreenMode { Menu, Run, Results }
         private ScreenMode mode;
@@ -14,12 +14,18 @@ namespace Squares
         private SaveStore saves;
         private SquareView view;
         private SynthAudio audioBus;
-        private bool paused, banked, endedVoluntarily;
+        private bool paused, banked, endedVoluntarily, buildOpen;
+        private string skillToast;
+        private float skillToastUntil;
         private float accumulator, uiWidth, uiHeight, uiScale;
         private GUIStyle label, title, body;
         private Font font;
         private int menuFrames, errors, picks;
-        private bool smoke, smokeFinished, screenshotTaken, smokePaused, pausePassed, draftCaptured;
+        private bool smoke, smokeFinished, screenshotTaken, smokePaused, pausePassed, draftCaptured, realtimeReview;
+        private float reviewDraftTime;
+        private int reviewMilestone = 30;
+        private bool buildChecked, buildPausePassed, specializationCaptured;
+        private int buildFrames, buildTick;
         private int pauseAtTick, pauseFrames, draftFrames;
         private float smokeSeconds = 210;
         private string smokeResult, capturePath;
@@ -27,7 +33,7 @@ namespace Squares
         private static readonly Color Muted = new Color(.44f, .56f, .65f);
         private static readonly Color Panel = new Color(.043f, .063f, .095f, .98f);
         private static readonly Color LineColor = new Color(.13f, .21f, .27f);
-        private static readonly string[] CoreNames = { "STRIKER", "SATELLITE", "CONDUCTOR" };
+        private static readonly string[] CoreNames = { "СТРЕЛОК", "СПУТНИК", "ПРОВОДНИК" };
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void Boot()
@@ -42,6 +48,7 @@ namespace Squares
             Application.logMessageReceived += OnLog;
             string[] args = Environment.GetCommandLineArgs();
             smoke = Array.IndexOf(args, "-squares-smoke") >= 0;
+            realtimeReview = Array.IndexOf(args, "-realtime-review") >= 0;
             smokeResult = Argument(args, "-smoke-result"); capturePath = Argument(args, "-capture");
             if (float.TryParse(Argument(args, "-smoke-seconds"), System.Globalization.NumberStyles.Float,
                 System.Globalization.CultureInfo.InvariantCulture, out float duration)) smokeSeconds = Mathf.Clamp(duration, 20, 1200);
@@ -50,7 +57,7 @@ namespace Squares
             profile = smoke ? new Profile() : saves.Load();
             font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
             view = new SquareView(transform); audioBus = new SynthAudio(gameObject);
-            Debug.Log("SQUARES_BOOT_OK version=0.1.0 smoke=" + smoke);
+            Debug.Log("SQUARES_BOOT_OK version=0.2.0 smoke=" + smoke);
         }
         private static string Argument(string[] args, string key)
         { int i = Array.IndexOf(args, key); return i >= 0 && i + 1 < args.Length ? args[i + 1] : null; }
@@ -72,12 +79,16 @@ namespace Squares
             }
             else
             {
+                if (Input.GetKeyDown(KeyCode.Tab)) { buildOpen = !buildOpen; accumulator = 0; }
+                if (Input.GetKeyDown(KeyCode.Escape) && buildOpen) { buildOpen = false; Render(); return; }
                 if (Input.GetKeyDown(KeyCode.Escape)) { paused = !paused; accumulator = 0; }
-                if (!paused && world.Phase == RunPhase.Draft)
+                if (buildOpen) { accumulator = 0; }
+                else if (!paused && world.Phase == RunPhase.Draft)
                 {
                     if (Input.GetKeyDown(KeyCode.Alpha1) || Input.GetKeyDown(KeyCode.Keypad1)) Pick(0);
                     else if (Input.GetKeyDown(KeyCode.Alpha2) || Input.GetKeyDown(KeyCode.Keypad2)) Pick(1);
                     else if (Input.GetKeyDown(KeyCode.Alpha3) || Input.GetKeyDown(KeyCode.Keypad3)) Pick(2);
+                    if (Input.GetKeyDown(KeyCode.R)) world.Reroll();
                     accumulator = 0;
                 }
                 else if (!paused && world.Phase == RunPhase.Running)
@@ -95,7 +106,7 @@ namespace Squares
         }
         private static bool Held(KeyCode a, KeyCode b) => Input.GetKey(a) || Input.GetKey(b);
         private void Render() => view.Render(world, Mathf.Min(.05f, Time.unscaledDeltaTime),
-            mode != ScreenMode.Run || (!paused && world.Phase == RunPhase.Running), profile.flashes);
+            mode != ScreenMode.Run || (!paused && !buildOpen && world.Phase == RunPhase.Running), profile.flashes);
         private void Tick(Command command)
         {
             world.Step(command);
@@ -106,10 +117,22 @@ namespace Squares
         {
             uint seed = smoke ? 735193u : unchecked((uint)DateTime.UtcNow.Ticks);
             world = new World(seed, profile.selectedCore, profile.vitality, profile.learning, profile.tempo);
-            mode = ScreenMode.Run; paused = banked = false; accumulator = 0; picks = 0; view.ClearEffects();
+            mode = ScreenMode.Run; paused = banked = buildOpen = false; accumulator = 0; picks = 0; view.ClearEffects();
         }
         private void Pick(int index)
-        { if (world.Choose(index)) { picks++; accumulator = 0; } }
+        {
+            bool special = world.IsSpecializationDraft;
+            string name = special ? SkillText.Specialty((Specialization)(index + 1)) : Upgrades.All[(int)world.Choices[index]].Name;
+            int oldSynergies = (world.HasStorm ? 1 : 0) | (world.HasShatter ? 2 : 0) | (world.HasIcebreak ? 4 : 0);
+            if (world.Choose(index))
+            {
+                if (!special) picks++;
+                accumulator = 0; skillToast = "Установлено: " + name;
+                int newSynergies = (world.HasStorm ? 1 : 0) | (world.HasShatter ? 2 : 0) | (world.HasIcebreak ? 4 : 0);
+                if (oldSynergies != newSynergies) skillToast = "СОЧЕТАНИЕ ОТКРЫТО!  " + name + "  /  TAB: подробности";
+                skillToastUntil = Time.unscaledTime + 3;
+            }
+        }
         private void EndRun(bool voluntary)
         {
             if (banked) return;
@@ -137,6 +160,7 @@ namespace Squares
             {
                 Hud();
                 if (mode == ScreenMode.Results) Results();
+                else if (buildOpen) BuildScreen();
                 else if (paused) PauseMenu();
                 else if (world.Phase == RunPhase.Draft) Draft();
             }
@@ -149,18 +173,18 @@ namespace Squares
         {
             Fill(new Rect(0, 0, uiWidth, uiHeight), new Color(.025f, .037f, .065f, .96f));
             float left = (uiWidth - 1360) / 2;
-            TextAt(new Rect(left, 48, 750, 30), "A REACTOR. AN ARENA. A THOUSAND BUILDS.", 15, SquareView.Mint);
+            TextAt(new Rect(left, 48, 750, 30), "ОДИН РЕАКТОР. ОДНА АРЕНА. ТЫСЯЧИ СОЧЕТАНИЙ.", 15, SquareView.Mint);
             TextAt(new Rect(left - 4, 94, 760, 100), "SQUARES", 90, Text, true);
             TextAt(new Rect(left, 202, 750, 55), "// OVERLOAD", 42, SquareView.Mint, true);
-            TextAt(new Rect(left + 890, 61, 470, 30), "PROTOTYPE  0.1     /     SOLO REACTOR", 15, Muted, false, TextAnchor.UpperRight);
-            TextAt(new Rect(left + 940, 124, 420, 60), profile.flux + "  FLUX", 44, SquareView.Gold, true, TextAnchor.UpperRight);
-            TextAt(new Rect(left + 960, 198, 400, 40), "BEST  " + Clock(profile.bestSeconds) + "   /   " + profile.bestKills + " KILLS", 17, Muted, false, TextAnchor.UpperRight);
+            TextAt(new Rect(left + 890, 61, 470, 30), "ВЕРСИЯ 0.2   /   ОДИНОЧНАЯ ИГРА", 15, Muted, false, TextAnchor.UpperRight);
+            TextAt(new Rect(left + 940, 124, 420, 60), profile.flux + "  ФЛЮКСА", 44, SquareView.Gold, true, TextAnchor.UpperRight);
+            TextAt(new Rect(left + 960, 198, 400, 40), "РЕКОРД  " + Clock(profile.bestSeconds) + "   /   " + profile.bestKills + " УБИЙСТВ", 17, Muted, false, TextAnchor.UpperRight);
             Fill(new Rect(left, 284, 1360, 1), LineColor);
-            TextAt(new Rect(left, 308, 800, 28), "01  /  SELECT YOUR REACTOR", 16, Muted);
+            TextAt(new Rect(left, 308, 800, 28), "01  /  ВЫБЕРИ СТАРТОВЫЙ РЕАКТОР", 16, Muted);
             string[] descriptions = {
-                "PRECISION / TEMPO\nKinetic array + rapid cycle.\nDirect fire, fast decisions.",
-                "PROXIMITY / CONTROL\nKinetic array + orbiting satellite.\nTurn close calls into damage.",
-                "CHAIN / CASCADE\nKinetic array + lightning relay.\nBreak a crowd from the inside."
+                "СТРЕЛЬБА / ТЕМП\nАвтопушка + скорострельность.\nСтреляй издалека и собирай врагов в ряд.",
+                "БЛИЖНИЙ БОЙ / КОНТРОЛЬ\nАвтопушка + боевой спутник.\nВеди врагов вдоль своей орбиты.",
+                "ЦЕПИ / ТОЛПА\nАвтопушка + цепная молния.\nЧем теснее враги, тем сильнее разряд."
             };
             for (int i = 0; i < 3; i++)
             {
@@ -172,16 +196,16 @@ namespace Squares
                 Fill(new Rect(x + 29, 381, 14, 14), Panel);
                 TextAt(new Rect(x + 64, 372, 345, 35), CoreNames[i], 25, Text, true);
                 TextAt(new Rect(x + 22, 423, 392, 82), descriptions[i], 18, Muted, wrap: true);
-                string action = unlocked ? selected ? "SELECTED" : "SELECT REACTOR" : "UNLOCK / " + (i == 1 ? 35 : 60) + " FLUX";
+                string action = unlocked ? selected ? "ВЫБРАН" : "ВЫБРАТЬ" : "ОТКРЫТЬ / " + (i == 1 ? 35 : 60) + " ФЛЮКСА";
                 if (ButtonAt(new Rect(x + 22, 520, 392, 32), action, accent,
                     unlocked || profile.flux >= (i == 1 ? 35 : 60)))
                 {
                     if (unlocked || profile.BuyCore(i)) { profile.selectedCore = i; saves.Save(profile); }
                 }
             }
-            TextAt(new Rect(left, 598, 1360, 28), "02  /  PERSISTENT RESEARCH", 16, Muted);
-            string[] researchNames = { "HULL", "DATA", "VECTOR" };
-            string[] researchDesc = { "+10 starting hull", "+8% experience", "+3% movement" };
+            TextAt(new Rect(left, 598, 1360, 28), "02  /  УЛУЧШЕНИЯ МЕЖДУ ЗАБЕГАМИ", 16, Muted);
+            string[] researchNames = { "ЗДОРОВЬЕ", "ОПЫТ", "СКОРОСТЬ" };
+            string[] researchDesc = { "+10 к стартовому здоровью", "+8% получаемого опыта", "+3% скорости движения" };
             for (int i = 0; i < 3; i++)
             {
                 float x = left + i * 462;
@@ -189,14 +213,14 @@ namespace Squares
                 int rank = profile.ResearchRank(i);
                 TextAt(new Rect(x + 16, 648, 230, 24), researchNames[i] + "  " + rank + "/5", 18, Text, true);
                 TextAt(new Rect(x + 16, 678, 230, 24), researchDesc[i], 16, Muted);
-                if (ButtonAt(new Rect(x + 260, 654, 160, 48), rank >= 5 ? "MAX" : profile.ResearchCost(i) + " FLUX",
+                if (ButtonAt(new Rect(x + 260, 654, 160, 48), rank >= 5 ? "МАКС." : profile.ResearchCost(i) + " ФЛЮКСА",
                     SquareView.Gold, rank < 5 && profile.flux >= profile.ResearchCost(i)))
                     if (profile.BuyResearch(i)) saves.Save(profile);
             }
-            TextAt(new Rect(left, uiHeight - 134, 800, 34), "WASD  MOVE     SPACE  DASH     Q  OVERLOAD", 18, Text);
-            TextAt(new Rect(left, uiHeight - 95, 840, 54), "Auto-fire. Collect data. Choose modules. Survive the first boss at 03:00.\nBank flux after a run. Come back with a different build.", 16, Muted, wrap: true);
-            if (ButtonAt(new Rect(left + 940, uiHeight - 136, 420, 70), "ENTER THE ARENA   [ ENTER ]", SquareView.Mint)) StartRun();
-            TextAt(new Rect(left + 940, uiHeight - 49, 420, 24), "F11 FULLSCREEN   /   ESC PAUSE   /   v0.1", 14, Muted, false, TextAnchor.UpperRight);
+            TextAt(new Rect(left, uiHeight - 134, 880, 34), "WASD  ДВИЖЕНИЕ    SPACE  РЫВОК    Q  ПЕРЕГРУЗКА", 17, Text);
+            TextAt(new Rect(left, uiHeight - 95, 900, 54), "Собирай белый опыт, выбирай навыки, строй сочетания. Босс в 03:00.\nНа 5-м уровне — специализация. TAB — сборка и подсказки.", 16, Muted, wrap: true);
+            if (ButtonAt(new Rect(left + 940, uiHeight - 136, 420, 70), "НА АРЕНУ   [ ENTER ]", SquareView.Mint)) StartRun();
+            TextAt(new Rect(left + 940, uiHeight - 49, 420, 24), "F11  ПОЛНЫЙ ЭКРАН  /  ESC  ПАУЗА", 14, Muted, false, TextAnchor.UpperRight);
         }
 
         private void Hud()
@@ -204,94 +228,78 @@ namespace Squares
             Fill(new Rect(0, 0, uiWidth, 82), new Color(.025f, .037f, .065f, .97f));
             Fill(new Rect(0, 81, uiWidth, 1), LineColor);
             TextAt(new Rect(28, 16, 270, 24), "SQUARES  //  " + CoreNames[world.Core], 16, SquareView.Mint, true);
-            TextAt(new Rect(28, 48, 270, 24), "SECTOR " + world.Sector.ToString("00") + "   /   LV " + world.Level.ToString("00"), 15, Muted);
-            TextAt(new Rect(340, 13, 340, 25), "HULL  " + Mathf.CeilToInt(world.Hull) + " / " + (int)world.MaxHull, 16, Text);
+            TextAt(new Rect(28, 48, 300, 24), "СЕКТОР " + world.Sector.ToString("00") + " / УРОВЕНЬ " + world.Level.ToString("00"), 15, Muted);
+            TextAt(new Rect(340, 13, 340, 25), "ЗДОРОВЬЕ  " + Mathf.CeilToInt(world.Hull) + " / " + (int)world.MaxHull, 16, Text);
             Bar(new Rect(340, 47, 300, 7), world.Hull / world.MaxHull, world.Hull < 30 ? SquareView.Red : SquareView.Mint);
             TextAt(new Rect(uiWidth / 2 - 80, 14, 160, 46), Clock(world.Time), 34, Text, true, TextAnchor.UpperCenter);
-            TextAt(new Rect(uiWidth - 560, 17, 250, 24), world.Kills + " KILLS   /   " + world.EarnedFlux + " FLUX", 16, Text);
-            TextAt(new Rect(uiWidth - 560, 48, 250, 24), world.Bosses > 0 ? world.Bosses + " BOSS CLEARED / ENDLESS" : "BOSS IN " + Clock(Mathf.Max(0, 180 - world.Time)), 14, Muted);
-            if (ButtonAt(new Rect(uiWidth - 230, 20, 200, 40), "PAUSE  [ ESC ]", Muted)) paused = !paused;
+            TextAt(new Rect(uiWidth - 560, 17, 285, 24), world.Kills + " УБИТО / " + world.EarnedFlux + " ФЛЮКСА", 15, Text);
+            TextAt(new Rect(uiWidth - 560, 48, 285, 24), world.Bosses > 0 ? "БОССОВ: " + world.Bosses + " / БЕСКОНЕЧНОСТЬ" : "ДО БОССА " + Clock(Mathf.Max(0, 180 - world.Time)), 14, Muted);
+            if (ButtonAt(new Rect(uiWidth - 230, 20, 200, 40), "ПАУЗА [ ESC ]", Muted)) paused = !paused;
             Bar(new Rect(0, 82, uiWidth, 3), world.XP / world.NextLevelXP, SquareView.Blue);
 
             float bottom = uiHeight - 84;
             Fill(new Rect(0, bottom, uiWidth, 84), new Color(.025f, .037f, .065f, .97f));
             Fill(new Rect(0, bottom, uiWidth, 1), LineColor);
-            TextAt(new Rect(28, bottom + 15, 230, 24), world.DashCooldown <= 0 ? "SPACE  /  PHASE READY" : "PHASE  /  " + world.DashCooldown.ToString("F1") + "s", 15, Text);
+            TextAt(new Rect(28, bottom + 15, 230, 24), world.DashCooldown <= 0 ? "SPACE / РЫВОК ГОТОВ" : "РЫВОК / " + world.DashCooldown.ToString("F1") + " с", 15, Text);
             Bar(new Rect(28, bottom + 50, 200, 4), 1 - world.DashCooldown / world.DashPeriod, SquareView.Mint);
-            TextAt(new Rect(270, bottom + 15, 300, 24), world.Charge >= 100 ? "Q  /  OVERLOAD READY" : "OVERLOAD  /  " + (int)world.Charge + "%", 15, world.Charge >= 100 ? SquareView.Gold : Text);
+            TextAt(new Rect(270, bottom + 15, 300, 24), world.Charge >= 100 ? "Q / ПЕРЕГРУЗКА ГОТОВА" : "ПЕРЕГРУЗКА / " + (int)world.Charge + "%", 15, world.Charge >= 100 ? SquareView.Gold : Text);
             Bar(new Rect(270, bottom + 50, 250, 4), world.Charge / 100, SquareView.Gold);
-            string modules = "KINETIC " + world.Rank(Module.Kinetic) + "   /   ORBIT " + world.Rank(Module.Satellite) + "   /   ARC " + world.Rank(Module.Arc);
+            string modules = "ПУЛИ " + world.Stats.Shots + " / СПУТНИКИ " + world.Rank(Module.Satellite) + " / МОЛНИЯ " + world.Rank(Module.Arc);
             TextAt(new Rect(590, bottom + 15, 570, 24), modules, 16, Text);
-            string synergy = world.HasStorm ? "SYNERGY  /  ION STORM: +2 CHAINS, +30% ORBIT" : world.HasShatter ? "SYNERGY  /  SHATTER: PROJECTILE KNOCKBACK" : "COMBINE ARC 2 + SATELLITE 2 TO FORM ION STORM";
+            string synergy = "TAB: НАВЫКИ И СОЧЕТАНИЯ  /  " + SkillText.Specialty(world.Specialization);
             TextAt(new Rect(590, bottom + 48, 670, 24), synergy, 13, world.HasStorm || world.HasShatter ? SquareView.Gold : Muted);
-            if (world.Combo > 1) TextAt(new Rect(uiWidth - 260, bottom + 17, 230, 43), "x" + world.Combo + " COMBO", 25, SquareView.Mint, true, TextAnchor.UpperRight);
-            else TextAt(new Rect(uiWidth - 260, bottom + 24, 230, 30), "WASD MOVE / AUTO FIRE", 13, Muted, false, TextAnchor.UpperRight);
+            if (world.Combo > 1) TextAt(new Rect(uiWidth - 260, bottom + 17, 230, 43), "x" + world.Combo + " КОМБО", 25, SquareView.Mint, true, TextAnchor.UpperRight);
+            else TextAt(new Rect(uiWidth - 260, bottom + 24, 230, 30), "WASD: ДВИЖЕНИЕ", 13, Muted, false, TextAnchor.UpperRight);
             foreach (Enemy e in world.Enemies)
                 if (e.Kind == EnemyKind.Boss)
                 {
-                    TextAt(new Rect(uiWidth / 2 - 270, 100, 540, 24), "THE DIVISOR  //  SECTOR GUARDIAN", 15, SquareView.Red, true, TextAnchor.UpperCenter);
+                    TextAt(new Rect(uiWidth / 2 - 270, 100, 540, 24), "ДЕЛИТЕЛЬ // СТРАЖ СЕКТОРА", 15, SquareView.Red, true, TextAnchor.UpperCenter);
                     Bar(new Rect(uiWidth / 2 - 270, 131, 540, 6), e.HP / e.MaxHP, SquareView.Red); break;
                 }
             if (world.Time < 10 && world.Phase == RunPhase.Running && !paused && mode == ScreenMode.Run)
             {
-                TextAt(new Rect(uiWidth / 2 - 430, uiHeight - 155, 860, 26), "COLLECT WHITE DATA SQUARES TO LEVEL UP  /  KEEP MOVING", 17, Muted, false, TextAnchor.UpperCenter);
+                TextAt(new Rect(uiWidth / 2 - 480, uiHeight - 155, 960, 26), "СОБИРАЙ БЕЛЫЕ КВАДРАТЫ ОПЫТА. СТРЕЛЬБА АВТОМАТИЧЕСКАЯ. TAB — СБОРКА.", 16, Muted, false, TextAnchor.UpperCenter);
             }
             if (world.OverloadTime > 0)
-                TextAt(new Rect(uiWidth / 2 - 300, uiHeight - 128, 600, 30), "// OVERLOAD ACTIVE //", 19, SquareView.Gold, true, TextAnchor.UpperCenter);
+                TextAt(new Rect(uiWidth / 2 - 300, uiHeight - 128, 600, 30), "// ПЕРЕГРУЗКА АКТИВНА //", 19, SquareView.Gold, true, TextAnchor.UpperCenter);
+            if (Time.unscaledTime < skillToastUntil && world.Phase == RunPhase.Running && !buildOpen)
+                TextAt(new Rect(uiWidth / 2 - 550, 150, 1100, 32), skillToast, 21, SquareView.Mint, true, TextAnchor.UpperCenter);
         }
 
         private void Draft()
         {
-            Shade();
-            float x = (uiWidth - 1236) / 2, y = (uiHeight - 436) / 2;
-            TextAt(new Rect(x, y - 84, 1236, 38), "EVOLVE YOUR REACTOR", 34, Text, true);
-            TextAt(new Rect(x, y - 35, 1236, 30), "LEVEL " + world.Level + "   /   CHOOSE ONE MODULE   /   TIME IS FROZEN", 16, SquareView.Mint);
-            for (int i = 0; i < 3; i++)
-            {
-                Upgrade u = Upgrades.All[(int)world.Choices[i]];
-                float cx = x + i * 420;
-                Color accent = u.Category == "SURVIVAL" ? SquareView.Mint : u.Category == "WEAPON" ? SquareView.Gold : SquareView.Blue;
-                Rect card = new Rect(cx, y + 24, 396, 348);
-                PanelAt(card, accent);
-                TextAt(new Rect(cx + 25, y + 49, 346, 30), "0" + (i + 1) + "  /  " + u.Category, 16, accent);
-                TextAt(new Rect(cx + 25, y + 106, 346, 65), u.Name, 28, Text, true, wrap: true);
-                int rank = world.Rank(u.Id);
-                TextAt(new Rect(cx + 25, y + 185, 346, 28), u.Id == Module.Repair ? "INSTANT RECOVERY" : "RANK " + rank + " > " + (rank + 1) + (u.MaxRank > 0 ? "  /  MAX " + u.MaxRank : "  /  UNLIMITED"), 15, accent);
-                TextAt(new Rect(cx + 25, y + 228, 346, 65), u.Description, 20, Muted, wrap: true);
-                if (ButtonAt(new Rect(cx + 25, y + 307, 346, 42), "INSTALL  [ " + (i + 1) + " ]", accent)) { Pick(i); break; }
-            }
-            TextAt(new Rect(x, y + 400, 1236, 50), "ION STORM: ARC 2 + SATELLITE 2     /     SHATTER: PIERCE 1 + MULTISHOT 2", 15, Muted);
+            SkillDraft();
         }
         private void PauseMenu()
         {
             Shade(); float x = (uiWidth - 580) / 2, y = (uiHeight - 470) / 2;
             PanelAt(new Rect(x, y, 580, 470), SquareView.Mint);
-            TextAt(new Rect(x + 36, y + 32, 508, 50), "REACTOR SUSPENDED", 32, Text, true);
-            TextAt(new Rect(x + 36, y + 95, 508, 60), "WASD move / SPACE dash / Q overload\nWeapons fire automatically. 1 / 2 / 3 pick modules.", 18, Muted, wrap: true);
-            if (ButtonAt(new Rect(x + 36, y + 178, 508, 52), "RESUME  [ ESC ]", SquareView.Mint)) { paused = false; accumulator = 0; }
-            if (ButtonAt(new Rect(x + 36, y + 251, 245, 43), "SOUND  " + (profile.sound ? "ON" : "OFF"), Muted))
+            TextAt(new Rect(x + 36, y + 32, 508, 50), "РЕАКТОР НА ПАУЗЕ", 32, Text, true);
+            TextAt(new Rect(x + 36, y + 95, 508, 60), "WASD: бег / SPACE: рывок / Q: перегрузка\nTAB: сборка и рецепты. Оружие стреляет само.", 18, Muted, wrap: true);
+            if (ButtonAt(new Rect(x + 36, y + 178, 508, 52), "ПРОДОЛЖИТЬ [ ESC ]", SquareView.Mint)) { paused = false; accumulator = 0; }
+            if (ButtonAt(new Rect(x + 36, y + 251, 245, 43), "ЗВУК: " + (profile.sound ? "ВКЛ" : "ВЫКЛ"), Muted))
             { profile.sound = !profile.sound; saves.Save(profile); }
-            if (ButtonAt(new Rect(x + 299, y + 251, 245, 43), "SHAKE  " + (profile.flashes ? "ON" : "OFF"), Muted))
+            if (ButtonAt(new Rect(x + 299, y + 251, 245, 43), "ТРЯСКА: " + (profile.flashes ? "ВКЛ" : "ВЫКЛ"), Muted))
             { profile.flashes = !profile.flashes; saves.Save(profile); }
-            TextAt(new Rect(x + 36, y + 317, 508, 28), "END THIS EXPEDITION AND BANK " + world.EarnedFlux + " FLUX", 15, Muted);
-            if (ButtonAt(new Rect(x + 36, y + 362, 508, 52), "BANK & END RUN", SquareView.Gold)) EndRun(true);
+            TextAt(new Rect(x + 36, y + 317, 508, 28), "ЗАВЕРШИТЬ ЗАБЕГ И СОХРАНИТЬ " + world.EarnedFlux + " ФЛЮКСА", 15, Muted);
+            if (ButtonAt(new Rect(x + 36, y + 362, 508, 52), "ЗАВЕРШИТЬ ЗАБЕГ", SquareView.Gold)) EndRun(true);
         }
         private void Results()
         {
             Shade(); float x = (uiWidth - 900) / 2, y = (uiHeight - 550) / 2;
             PanelAt(new Rect(x, y, 900, 550), SquareView.Mint);
-            TextAt(new Rect(x + 42, y + 35, 816, 28), "EXPEDITION ARCHIVE  /  SEED " + world.Seed, 15, Muted);
-            TextAt(new Rect(x + 42, y + 90, 816, 62), endedVoluntarily ? "REACTOR EXTRACTED" : "REACTOR OFFLINE", 46, Text, true);
-            TextAt(new Rect(x + 42, y + 166, 816, 40), "THE NEXT BUILD WILL BE DIFFERENT.", 18, SquareView.Mint);
-            string[] names = { "SURVIVED", "KILLS", "LEVEL", "BOSSES" };
+            TextAt(new Rect(x + 42, y + 35, 816, 28), "ИТОГИ ЗАБЕГА / SEED " + world.Seed, 15, Muted);
+            TextAt(new Rect(x + 42, y + 90, 816, 62), endedVoluntarily ? "РЕАКТОР ЭВАКУИРОВАН" : "РЕАКТОР РАЗРУШЕН", 41, Text, true);
+            TextAt(new Rect(x + 42, y + 166, 816, 40), SkillText.Specialty(world.Specialization) + " / СЛЕДУЮЩАЯ СБОРКА БУДЕТ ДРУГОЙ.", 17, SquareView.Mint);
+            string[] names = { "ВРЕМЯ", "УБИЙСТВА", "УРОВЕНЬ", "БОССЫ" };
             string[] values = { Clock(world.Time), world.Kills.ToString(), world.Level.ToString(), world.Bosses.ToString() };
             for (int i = 0; i < 4; i++)
             {
                 TextAt(new Rect(x + 42 + i * 210, y + 244, 190, 25), names[i], 15, Muted);
                 TextAt(new Rect(x + 42 + i * 210, y + 281, 190, 60), values[i], 40, Text, true);
             }
-            TextAt(new Rect(x + 42, y + 372, 816, 45), "+ " + world.EarnedFlux + " FLUX BANKED", 29, SquareView.Gold, true);
-            if (ButtonAt(new Rect(x + 42, y + 446, 816, 62), "RETURN TO REACTOR BAY  [ ENTER ]", SquareView.Mint))
+            TextAt(new Rect(x + 42, y + 372, 816, 45), "+ " + world.EarnedFlux + " ФЛЮКСА СОХРАНЕНО", 29, SquareView.Gold, true);
+            if (ButtonAt(new Rect(x + 42, y + 446, 816, 62), "В АНГАР [ ENTER ]", SquareView.Mint))
             { mode = ScreenMode.Menu; world = null; view.ClearEffects(); }
         }
 
@@ -342,14 +350,38 @@ namespace Squares
                 if (++pauseFrames < 4) return;
                 pausePassed = world.Ticks == pauseAtTick; paused = false;
             }
+            if (!buildChecked && world.Time >= 60)
+            { buildChecked = true; buildOpen = true; buildTick = world.Ticks; }
+            if (buildOpen)
+            {
+                if (++buildFrames == 2) CaptureState("build");
+                if (buildFrames < 5) return;
+                buildPausePassed = world.Ticks == buildTick; buildOpen = false;
+            }
             if (world.Phase == RunPhase.Draft)
             {
+                if (world.IsSpecializationDraft && !specializationCaptured && draftFrames == 1)
+                { CaptureState("specialization"); specializationCaptured = true; }
                 if (!draftCaptured && draftFrames == 1) { CaptureState("draft"); draftCaptured = true; }
-                if (++draftFrames > 2) { Pick(AutoPilot.Pick(world)); draftFrames = 0; }
+                reviewDraftTime += Time.unscaledDeltaTime;
+                if (++draftFrames > 2 && (!realtimeReview || reviewDraftTime >= 1.4f))
+                { Pick(AutoPilot.Pick(world)); draftFrames = 0; reviewDraftTime = 0; }
                 return;
             }
-            for (int i = 0; i < 24 && world.Phase == RunPhase.Running && world.Time < smokeSeconds; i++)
+            int steps = 24;
+            if (realtimeReview)
+            {
+                accumulator = Mathf.Min(accumulator + Time.unscaledDeltaTime, World.Dt * 8);
+                steps = (int)(accumulator / World.Dt); accumulator -= steps * World.Dt;
+            }
+            for (int i = 0; i < steps && world.Phase == RunPhase.Running && world.Time < smokeSeconds; i++)
                 Tick(AutoPilot.Input(world));
+            if (world.Time >= reviewMilestone)
+            {
+                CaptureState("combat-" + reviewMilestone);
+                Debug.Log($"SQUARES_REVIEW t={world.Time:F1} kills={world.Kills} level={world.Level} hull={world.Hull:F1} bosses={world.Bosses}");
+                reviewMilestone += 30;
+            }
             if (!screenshotTaken && world.Time >= 45 && world.Phase == RunPhase.Running && !string.IsNullOrEmpty(capturePath))
             {
                 string dir = Path.GetDirectoryName(capturePath);
@@ -373,15 +405,15 @@ namespace Squares
         [Serializable]
         private sealed class SmokeReport
         {
-            public bool passed, pausePassed, screenshotRequested;
+            public bool passed, pausePassed, buildPausePassed, screenshotRequested;
             public int errors, ticks, kills, level, bosses, picks, flux;
             public float seconds, hull;
             public string fingerprint;
         }
         private void WriteSmokeResult()
         {
-            var report = new SmokeReport { passed = errors == 0 && pausePassed && picks >= 3 && world.Kills >= 20 && world.Time >= 30,
-                pausePassed = pausePassed, screenshotRequested = screenshotTaken, errors = errors, ticks = world.Ticks,
+            var report = new SmokeReport { passed = errors == 0 && pausePassed && (!buildChecked || buildPausePassed) && picks >= 3 && world.Kills >= 20 && world.Time >= 30,
+                pausePassed = pausePassed, buildPausePassed = buildPausePassed, screenshotRequested = screenshotTaken, errors = errors, ticks = world.Ticks,
                 kills = world.Kills, level = world.Level, bosses = world.Bosses, picks = picks, flux = world.EarnedFlux,
                 seconds = world.Time, hull = world.Hull, fingerprint = world.Fingerprint().ToString() };
             string json = JsonUtility.ToJson(report, true);

@@ -2,7 +2,7 @@ param([int]$Seconds = 240, [switch]$Visible, [int]$Width = 1600, [int]$Height = 
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $player = Join-Path $projectRoot 'Builds/Windows/Squares.exe'
-$outputDirectory = Join-Path $projectRoot 'Temp/Smoke'
+$outputDirectory = Join-Path $projectRoot 'Logs/Smoke'
 New-Item -ItemType Directory -Force -Path $outputDirectory | Out-Null
 $result = Join-Path $outputDirectory 'result.json'
 $log = Join-Path $outputDirectory 'player.log'

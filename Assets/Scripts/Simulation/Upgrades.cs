@@ -5,7 +5,8 @@ namespace Squares.Simulation
     public enum Module
     {
         Kinetic, Power, Rate, Multishot, Pierce, Satellite, OrbitPower, OrbitRadius,
-        Arc, Chain, Hull, Repair, Magnet, Thrusters, Dash, Critical, Regen, Learning, Overdrive, Capacitor, Count
+        Arc, Chain, Hull, Repair, Magnet, Thrusters, Dash, Critical, Regen, Learning, Overdrive, Capacitor,
+        Blast, Frost, Ram, Count
     }
 
     public sealed class Upgrade
@@ -20,26 +21,29 @@ namespace Squares.Simulation
     public static class Upgrades
     {
         public static readonly Upgrade[] All = {
-            new Upgrade(Module.Kinetic, "KINETIC ARRAY", "WEAPON", "Unlock / +30% projectile damage.", 5),
-            new Upgrade(Module.Power, "DENSE AMMO", "KINETIC", "+25% damage to every weapon.", 5),
-            new Upgrade(Module.Rate, "RAPID CYCLE", "KINETIC", "+18% kinetic and arc fire rate.", 5),
-            new Upgrade(Module.Multishot, "FRACTAL SHOT", "KINETIC", "+1 projectile per burst. Wider fan.", 4),
-            new Upgrade(Module.Pierce, "PHASE ROUNDS", "KINETIC", "Projectiles pierce one more enemy.", 3),
-            new Upgrade(Module.Satellite, "SATELLITE", "WEAPON", "+1 orbiting square that deals contact damage.", 5),
-            new Upgrade(Module.OrbitPower, "HEAVY ORBIT", "SATELLITE", "+45% satellite damage and +10% speed.", 5),
-            new Upgrade(Module.OrbitRadius, "WIDE ORBIT", "SATELLITE", "+0.4 orbit radius and larger satellites.", 3),
-            new Upgrade(Module.Arc, "ARC RELAY", "WEAPON", "Unlock / +35% lightning damage. Ignores armor.", 5),
-            new Upgrade(Module.Chain, "CHAIN REACTION", "ARC", "Lightning jumps to one additional enemy.", 5),
-            new Upgrade(Module.Hull, "REINFORCED HULL", "SURVIVAL", "+20 max hull and restore 30 hull.", 5),
-            new Upgrade(Module.Repair, "FIELD REPAIR", "SURVIVAL", "Restore 40% of maximum hull immediately.", 0),
-            new Upgrade(Module.Magnet, "DATA VACUUM", "UTILITY", "+1.0 pickup radius. Collect from safety.", 4),
-            new Upgrade(Module.Thrusters, "VECTOR DRIVE", "UTILITY", "+10% movement speed.", 4),
-            new Upgrade(Module.Dash, "PHASE DRIVE", "UTILITY", "+24% dash recharge rate per rank.", 4),
-            new Upgrade(Module.Critical, "FAULT FINDER", "DAMAGE", "+10% chance of a double-damage hit.", 5),
-            new Upgrade(Module.Regen, "SELF REPAIR", "SURVIVAL", "Regenerate 0.6 hull per second.", 4),
-            new Upgrade(Module.Learning, "DATA MINING", "UTILITY", "+15% experience from data squares.", 4),
-            new Upgrade(Module.Overdrive, "LIMIT BREAK", "ENDLESS", "+8% all damage. No rank limit.", 0),
-            new Upgrade(Module.Capacitor, "FLUX CAPACITOR", "ENDLESS", "+8% overload charge per kill. No rank limit.", 0)
+            new Upgrade(Module.Kinetic, "Автопушка", "KINETIC", "Пули сами летят в ближайшего врага. Больше урона каждой пулей.", 5),
+            new Upgrade(Module.Power, "Общий урон", "DAMAGE", "Усиливает пули, спутники, молнию, взрывы и таран.", 5),
+            new Upgrade(Module.Rate, "Скорострельность", "KINETIC", "Пушка и молния срабатывают чаще. Спутники не ускоряются.", 5),
+            new Upgrade(Module.Multishot, "Веер пуль", "KINETIC", "Ещё одна пуля в каждом залпе. Урон одной пули не уменьшается.", 4),
+            new Upgrade(Module.Pierce, "Пули навылет", "KINETIC", "Пуля проходит сквозь врага и поражает следующего в ряду.", 3),
+            new Upgrade(Module.Satellite, "Боевой спутник", "WEAPON", "Ещё один квадрат вращается вокруг тебя и бьёт врагов при касании.", 5),
+            new Upgrade(Module.OrbitPower, "Тяжёлые спутники", "SATELLITE", "Спутники бьют сильнее и вращаются быстрее.", 5),
+            new Upgrade(Module.OrbitRadius, "Широкая орбита", "SATELLITE", "Спутники летают дальше от тебя. Лови врагов на краю орбиты.", 3),
+            new Upgrade(Module.Arc, "Цепная молния", "WEAPON", "Разряд автоматически перескакивает между близкими врагами.", 5),
+            new Upgrade(Module.Chain, "Больше цепей", "ARC", "Каждый разряд молнии поражает ещё одну цель.", 5),
+            new Upgrade(Module.Hull, "Больше здоровья", "SURVIVAL", "Увеличивает запас здоровья и сразу лечит на 30.", 5),
+            new Upgrade(Module.Repair, "Лечение", "SURVIVAL", "Сразу восстанавливает 40% максимального здоровья. Не постоянный навык.", 0),
+            new Upgrade(Module.Magnet, "Магнит опыта", "UTILITY", "Белые квадраты опыта притягиваются с большего расстояния.", 4),
+            new Upgrade(Module.Thrusters, "Скорость движения", "UTILITY", "Быстрее бегай между врагами и собирай опыт.", 4),
+            new Upgrade(Module.Dash, "Чаще рывок", "UTILITY", "Сокращает ожидание между рывками на SPACE.", 4),
+            new Upgrade(Module.Critical, "Критический удар", "DAMAGE", "Повышает шанс двойного урона пуль, спутников и молнии.", 5),
+            new Upgrade(Module.Regen, "Регенерация", "SURVIVAL", "Здоровье понемногу восстанавливается даже в бою.", 4),
+            new Upgrade(Module.Learning, "Больше опыта", "UTILITY", "Каждый белый квадрат даёт больше опыта. Уровни приходят быстрее.", 4),
+            new Upgrade(Module.Overdrive, "Предел урона", "ENDLESS", "Постоянно усиливает всё оружие. Можно брать сколько угодно.", 0),
+            new Upgrade(Module.Capacitor, "Заряд перегрузки", "ENDLESS", "Убийства быстрее заряжают мощную способность на Q.", 0),
+            new Upgrade(Module.Blast, "Взрывные пули", "KINETIC", "При попадании пуля взрывается квадратом и ранит соседних врагов.", 3),
+            new Upgrade(Module.Frost, "Ледяные пули", "KINETIC", "Пули замедляют врагов. На боссах замедление вдвое слабее.", 3),
+            new Upgrade(Module.Ram, "Удар рывком", "WEAPON", "Рывок на SPACE пробивает толпу. Каждый враг получает удар один раз за рывок.", 3)
         };
 
         public static bool Available(Module id, int[] ranks)

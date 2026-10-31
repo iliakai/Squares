@@ -27,8 +27,10 @@ namespace Squares.Editor
                     Check(a.Ticks == tick && a.Hull == hull, "Draft freezes simulation");
                     Check(!a.Choose(-1) && !a.Choose(3), "Invalid draft indices rejected");
                     Module selected = a.Choices[pick]; int rank = a.Rank(selected);
+                    bool specialization = a.IsSpecializationDraft;
                     Check(a.Choose(pick) && b.Choose(pick), "Valid choice applies");
-                    Check(a.Rank(selected) == rank + (selected == Module.Repair ? 0 : 1), "One rank per choice");
+                    if (specialization) Check(a.Specialization != Specialization.None && a.Phase == RunPhase.Draft, "Specialization retains ordinary draft");
+                    else Check(a.Rank(selected) == rank + (selected == Module.Repair ? 0 : 1), "One rank per choice");
                 }
                 Command input = AutoPilot.Input(a);
                 a.Step(input); b.Step(input);
@@ -61,6 +63,7 @@ namespace Squares.Editor
             foreach (Upgrade u in Upgrades.All) if (Upgrades.Available(u.Id, fallbackRanks)) fallbacks++;
             // A maxed-out build still needs three distinct options.
             Check(fallbacks >= 3, "Three choices remain for a capped build");
+            CheckNewSkills();
             CheckBossCombat();
             CheckPersistence();
             Debug.Log("SQUARES_CHECKS_PASS assertions=" + assertions);
@@ -118,6 +121,55 @@ namespace Squares.Editor
             Check(store.Load().bestKills == 123, "Corrupt primary recovers backup");
             profile.flux = -5; profile.selectedCore = 15; profile.vitality = 100; profile.Validate();
             Check(profile.flux == 0 && profile.selectedCore == 0 && profile.vitality == 5, "Validate save ranges");
+        }
+
+        private static Enemy TestEnemy(int id, V2 position, float speed = 0) => new Enemy {
+            Id = id, Position = position, Kind = EnemyKind.Chaser, HP = 1000, MaxHP = 1000,
+            Size = .3f, Speed = speed, Timer = 100
+        };
+        private static void CheckNewSkills()
+        {
+            var w = new World(100);
+            w.Ranks[(int)Module.Kinetic] = 0;
+            w.Ranks[(int)Module.Blast] = 1; w.Ranks[(int)Module.Frost] = 1;
+            Enemy target = TestEnemy(9001, new V2(2, 0)), neighbor = TestEnemy(9002, new V2(2, 1));
+            Enemy outside = TestEnemy(9003, new V2(2, 3));
+            w.Enemies.Add(target); w.Enemies.Add(neighbor); w.Enemies.Add(outside);
+            w.Bullets.Add(new Bullet { Id = 9004, Position = new V2(2, 0), Velocity = default, Damage = 100, Life = 1, Size = .1f });
+            w.Step(default);
+            Check(Math.Abs(target.HP - 900) < .01f, "Direct hit is not double-counted by splash");
+            Check(Math.Abs(neighbor.HP - 965) < .01f && outside.HP == 1000, "Square explosion damages nearby target only");
+            Check(target.SlowTime > 0 && Math.Abs(target.SlowFactor - .3f) < .001f, "Frost applies real slow");
+            target.Speed = 1;
+            float before = target.Position.X;
+            w.Step(default);
+            Check(Math.Abs(before - target.Position.X - World.Dt * .7f) < .002f, "Chilled enemy moves slower");
+            for (int i = 0; i < 130; i++) { if (w.Phase == RunPhase.Draft) w.Choose(0); w.Step(default); }
+            Check(target.SlowTime == 0, "Slow wears off");
+            var ram = new World(101); ram.Ranks[(int)Module.Kinetic] = 0; ram.Ranks[(int)Module.Ram] = 1;
+            Enemy obstacle = TestEnemy(9010, new V2(.5f, 0)); ram.Enemies.Add(obstacle);
+            ram.Step(new Command(new V2(1, 0), true));
+            Check(Math.Abs(obstacle.HP - 960) < .001f && ram.Hull == ram.MaxHull, "Ram deals damage and dash protects hull");
+            for (int i = 0; i < 8; i++) ram.Step(new Command(new V2(-1, 0)));
+            Check(obstacle.HP == 960, "Ram cannot hit the same enemy twice in one dash");
+            var preview = new World(102);
+            ulong hash = preview.Fingerprint();
+            CombatStats next = preview.Preview(Module.Multishot);
+            Check(next.Shots == 2 && preview.Fingerprint() == hash, "Preview shows next stats without mutating run");
+            var draft = new World(103);
+            draft.Pickups.Add(new Pickup { Id = 9500, Position = default, Value = 1000 });
+            draft.Step(default);
+            Module[] old = (Module[])draft.Choices.Clone(); int tick = draft.Ticks; float xp = draft.XP;
+            Check(draft.Reroll() && draft.RerollsRemaining == 0, "One reroll available");
+            bool fresh = false; foreach (Module m in draft.Choices) if (Array.IndexOf(old, m) < 0) fresh = true;
+            Check(fresh && draft.Ticks == tick && draft.XP == xp && !draft.Reroll(), "Reroll changes a choice without advancing or spending XP");
+            while (draft.Level < 5) { draft.Choose(0); if (draft.Phase != RunPhase.Draft) draft.Step(default); }
+            Check(draft.IsSpecializationDraft, "Specialization appears at level five with queued XP");
+            float maxHull = draft.MaxHull; float speed = draft.Stats.Speed;
+            Check(draft.Choose(2) && draft.Specialization == Specialization.Scout && draft.Stats.Speed > speed && draft.MaxHull < maxHull,
+                "Scout has a real advantage and a real cost");
+            Check(draft.Phase == RunPhase.Draft && !draft.IsSpecializationDraft && draft.Level == 5, "Ordinary level-five choice retained");
+            Debug.Log("SQUARES_SKILLS_CHECKS_PASS");
         }
     }
 }

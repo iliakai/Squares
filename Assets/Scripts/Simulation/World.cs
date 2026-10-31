@@ -24,6 +24,22 @@ namespace Squares.Simulation
         public int Bosses { get; private set; }
         public int Combo { get; private set; }
         public int DamageTaken { get; private set; }
+        public Specialization Specialization { get; private set; }
+        public bool IsSpecializationDraft => Phase == RunPhase.Draft && Level >= 5 && Specialization == Specialization.None;
+        public int RerollsRemaining { get; private set; } = 1;
+        public CombatStats Stats => CombatStats.Calculate(Ranks, Specialization, researchSpeed);
+        public CombatStats Preview(Module module)
+        {
+            int[] ranks = (int[])Ranks.Clone();
+            if (module != Module.Repair) ranks[(int)module]++;
+            return CombatStats.Calculate(ranks, Specialization, researchSpeed);
+        }
+        public CombatStats PreviewSpecialization(int index)
+        {
+            int[] ranks = (int[])Ranks.Clone();
+            if (index == 1) ranks[(int)Module.Arc] = Math.Max(1, ranks[(int)Module.Arc]);
+            return CombatStats.Calculate(ranks, (Specialization)(index + 1), researchSpeed);
+        }
         public float Hull { get; private set; }
         public float MaxHull { get; private set; }
         public float XP { get; private set; }
@@ -35,18 +51,20 @@ namespace Squares.Simulation
         public float Time => Ticks * Dt;
         public int Sector => 1 + Ticks / 1800;
         public float NextLevelXP => 7 + Level * 4 + Level * Level * .3f;
-        public float DashPeriod => 2.6f / (1 + Rank(Module.Dash) * .24f);
+        public float DashPeriod => Stats.DashPeriod;
         public int EarnedFlux => Kills / 12 + Bosses * 25 + (int)(Time / 30);
-        public float OrbitAngle => Time * (2.2f + Rank(Module.OrbitPower) * .22f);
-        public float OrbitRadius => 1.65f + Rank(Module.OrbitRadius) * .4f;
-        public float SatelliteSize => .32f + Rank(Module.OrbitRadius) * .035f;
+        public float OrbitAngle => Time * Stats.OrbitSpeed;
+        public float OrbitRadius => Stats.OrbitRadius;
+        public float SatelliteSize => Stats.SatelliteSize;
         public bool HasStorm => Rank(Module.Arc) >= 2 && Rank(Module.Satellite) >= 2;
         public bool HasShatter => Rank(Module.Pierce) >= 1 && Rank(Module.Multishot) >= 2;
+        public bool HasIcebreak => Rank(Module.Blast) >= 2 && Rank(Module.Frost) >= 2;
         private SeededRandom random;
         private int nextId, nextElite = 3600, nextBoss = 10800;
         private float spawnTimer = .5f, shotTimer, arcTimer, comboTimer;
         private readonly float researchXP, researchSpeed;
         private V2 dashHeading;
+        private readonly HashSet<int> ramHits = new HashSet<int>();
 
         public World(uint seed, int core = 0, int vitality = 0, int learning = 0, int tempo = 0)
         {
@@ -84,9 +102,10 @@ namespace Squares.Simulation
             if (command.Dash && DashCooldown <= 0)
             {
                 DashCooldown = DashPeriod; DashTime = .19f; Invincible = Math.Max(Invincible, .29f);
+                ramHits.Clear();
                 dashHeading = Facing; Emit(EffectKind.Dash, Position);
             }
-            float speed = 5.2f * (1 + Rank(Module.Thrusters) * .1f + researchSpeed);
+            float speed = Stats.Speed;
             Position += (DashTime > 0 ? dashHeading * 23 : move * speed) * Dt;
             Position = Clamp(Position, .4f);
             if (command.Overload && Charge >= 100)
@@ -98,7 +117,7 @@ namespace Squares.Simulation
                 for (int i = Bullets.Count - 1; i >= 0; i--)
                     if (Bullets[i].Hostile) Bullets.RemoveAt(i);
             }
-            Hull = Math.Min(MaxHull, Hull + Rank(Module.Regen) * .6f * Dt);
+            Hull = Math.Min(MaxHull, Hull + Stats.Regen * Dt);
             SpawnDirector();
             Weapons();
             UpdateEnemies();
@@ -109,37 +128,37 @@ namespace Squares.Simulation
             else CheckLevel();
         }
 
-        private float DamageScale => (1 + Rank(Module.Power) * .25f) * (1 + Rank(Module.Overdrive) * .08f)
-            * (OverloadTime > 0 ? 1.45f : 1);
+        private float DamageScale => Stats.AllDamage * (OverloadTime > 0 ? 1.45f : 1);
         private void Weapons()
         {
-            float haste = (1 + Rank(Module.Rate) * .18f) * (OverloadTime > 0 ? 1.8f : 1);
+            CombatStats stats = Stats;
+            float haste = OverloadTime > 0 ? 1.8f : 1;
             shotTimer -= Dt * haste; arcTimer -= Dt * haste;
             Enemy target = Nearest(Position, 19);
             if (target != null && shotTimer <= 0 && Rank(Module.Kinetic) > 0)
             {
-                shotTimer = .48f;
+                shotTimer = stats.ShotPeriod;
                 V2 direction = (target.Position - Position).Normalized;
-                int count = 1 + Rank(Module.Multishot);
+                int count = stats.Shots;
                 for (int i = 0; i < count; i++)
                     AddBullet(Position, V2.Rotate(direction, (i - (count - 1) * .5f) * .14f) * 20,
-                        (12 + (Rank(Module.Kinetic) - 1) * 3.6f) * DamageScale, false, Rank(Module.Pierce));
+                        stats.BulletDamage * (OverloadTime > 0 ? 1.45f : 1), false, Rank(Module.Pierce));
                 Emit(EffectKind.Shot, Position);
             }
             if (target != null && arcTimer <= 0 && Rank(Module.Arc) > 0 &&
                 V2.DistanceSquared(target.Position, Position) <= 81)
             {
-                arcTimer = 1.2f;
+                arcTimer = stats.ArcPeriod;
                 V2 origin = Position;
                 var hit = new HashSet<int>();
-                int count = 2 + Rank(Module.Chain) + (HasStorm ? 2 : 0);
+                int count = stats.ArcTargets;
                 for (int i = 0; i < count; i++)
                 {
                     Enemy e = Nearest(origin, i == 0 ? 9 : 4.5f, hit);
                     if (e == null) break;
                     hit.Add(e.Id);
                     Emit(EffectKind.Arc, origin, e.Position);
-                    Hit(e, (14 + (Rank(Module.Arc) - 1) * 4.9f) * DamageScale, true);
+                    Hit(e, stats.ArcDamage * (OverloadTime > 0 ? 1.45f : 1), true);
                     origin = e.Position;
                 }
             }
@@ -152,7 +171,7 @@ namespace Squares.Simulation
                     float radius = e.Size + SatelliteSize;
                     if (V2.DistanceSquared(satellite, e.Position) > radius * radius) continue;
                     e.OrbitHit = .35f;
-                    Hit(e, 16 * (1 + Rank(Module.OrbitPower) * .45f) * DamageScale * (HasStorm ? 1.3f : 1), true);
+                    Hit(e, stats.OrbitDamage * (OverloadTime > 0 ? 1.45f : 1), true);
                 }
             }
         }
@@ -223,6 +242,7 @@ namespace Squares.Simulation
                 Enemy e = Enemies[i];
                 if (e.HP <= 0) continue;
                 e.Timer -= Dt; e.OrbitHit = Math.Max(0, e.OrbitHit - Dt);
+                e.SlowTime = Math.Max(0, e.SlowTime - Dt);
                 V2 delta = Position - e.Position;
                 V2 direction = delta.Normalized;
                 float movement = e.Speed;
@@ -257,8 +277,15 @@ namespace Squares.Simulation
                     if (gap.LengthSquared > .001f && gap.LengthSquared < .7f)
                         e.Position += gap.Normalized * .7f * Dt;
                 }
+                if (e.SlowTime > 0) movement *= 1 - e.SlowFactor;
                 e.Position = Clamp(e.Position + direction * movement * Dt, e.Size);
                 float radius = e.Size + .34f;
+                if (DashTime > 0 && Stats.RamDamage > 0 && !ramHits.Contains(e.Id) &&
+                    V2.DistanceSquared(e.Position, Position) < (radius + .3f) * (radius + .3f))
+                {
+                    ramHits.Add(e.Id); Hit(e, Stats.RamDamage * (OverloadTime > 0 ? 1.45f : 1), false);
+                    Emit(EffectKind.Ram, e.Position); e.Position = Clamp(e.Position + dashHeading * .4f, e.Size);
+                }
                 if (V2.DistanceSquared(e.Position, Position) < radius * radius)
                 {
                     Hurt(e.Kind == EnemyKind.Boss ? 25 : 10 + Sector * .8f);
@@ -294,7 +321,25 @@ namespace Squares.Simulation
                         float r = e.Size + b.Size;
                         if (V2.DistanceSquared(b.Position, e.Position) > r * r) continue;
                         b.HitIds.Add(e.Id);
+                        if (Rank(Module.Frost) > 0)
+                        {
+                            e.SlowTime = Stats.SlowDuration;
+                            e.SlowFactor = Stats.SlowFraction * (e.Kind == EnemyKind.Boss ? .5f : 1);
+                            Emit(EffectKind.Chill, e.Position);
+                        }
                         Hit(e, b.Damage, true);
+                        if (Rank(Module.Blast) > 0)
+                        {
+                            CombatStats stats = Stats;
+                            Emit(EffectKind.Blast, e.Position, size: stats.BlastRadius);
+                            foreach (Enemy neighbor in Enemies)
+                            {
+                                if (neighbor.Id == e.Id || neighbor.HP <= 0) continue;
+                                V2 gap = neighbor.Position - e.Position;
+                                if (Math.Abs(gap.X) > stats.BlastRadius || Math.Abs(gap.Y) > stats.BlastRadius) continue;
+                                Hit(neighbor, b.Damage * stats.BlastFraction * (HasIcebreak && neighbor.SlowTime > 0 ? 1.5f : 1), false);
+                            }
+                        }
                         if (HasShatter) e.Position = Clamp(e.Position + b.Velocity.Normalized * .22f, e.Size);
                         if (b.Pierce-- <= 0) { b.Life = 0; break; }
                     }
@@ -307,7 +352,7 @@ namespace Squares.Simulation
         private void Hit(Enemy e, float damage, bool critical)
         {
             if (e.HP <= 0) return;
-            if (critical && random.Value() < Rank(Module.Critical) * .1f) damage *= 2;
+            if (critical && random.Value() < Stats.CriticalChance) damage *= 2;
             e.HP -= damage;
             Emit(EffectKind.Hit, e.Position, size: damage);
         }
@@ -344,7 +389,7 @@ namespace Squares.Simulation
 
         private void UpdatePickups()
         {
-            float magnet = 2.2f + Rank(Module.Magnet);
+            float magnet = Stats.MagnetRadius;
             for (int i = Pickups.Count - 1; i >= 0; i--)
             {
                 Pickup p = Pickups[i];
@@ -364,6 +409,12 @@ namespace Squares.Simulation
         {
             if (XP < NextLevelXP) return;
             XP -= NextLevelXP; Level++; Phase = RunPhase.Draft;
+            RollChoices();
+            Emit(EffectKind.Level, Position);
+        }
+
+        private void RollChoices()
+        {
             var pool = new List<Module>();
             foreach (Upgrade u in Upgrades.All)
                 if (Upgrades.Available(u.Id, Ranks)) pool.Add(u.Id);
@@ -371,18 +422,38 @@ namespace Squares.Simulation
             {
                 int pick = random.Range(pool.Count); Choices[i] = pool[pick]; pool.RemoveAt(pick);
             }
-            Emit(EffectKind.Level, Position);
         }
 
         public bool Choose(int index)
         {
             if (Phase != RunPhase.Draft || index < 0 || index >= 3) return false;
+            if (IsSpecializationDraft)
+            {
+                Specialization = (Specialization)(index + 1);
+                if (Specialization == Specialization.Storm) Ranks[(int)Module.Arc] = Math.Max(1, Rank(Module.Arc));
+                if (Specialization == Specialization.Scout) { MaxHull *= .8f; Hull = Math.Min(Hull, MaxHull); }
+                RollChoices(); // The ordinary level-up remains queued after specialization.
+                return true;
+            }
             Module id = Choices[index];
             if (!Upgrades.Available(id, Ranks)) return false;
             if (id != Module.Repair) Ranks[(int)id]++;
             if (id == Module.Hull) { MaxHull += 20; Hull = Math.Min(MaxHull, Hull + 30); }
             if (id == Module.Repair) Hull = Math.Min(MaxHull, Hull + MaxHull * .4f);
             Phase = RunPhase.Running; CheckLevel(); return true;
+        }
+
+        public bool Reroll()
+        {
+            if (Phase != RunPhase.Draft || IsSpecializationDraft || RerollsRemaining <= 0) return false;
+            var fresh = new List<Module>();
+            foreach (Upgrade u in Upgrades.All)
+                if (Upgrades.Available(u.Id, Ranks) && Array.IndexOf(Choices, u.Id) < 0) fresh.Add(u.Id);
+            if (fresh.Count == 0) return false;
+            Module guaranteed = fresh[random.Range(fresh.Count)];
+            RollChoices();
+            if (Array.IndexOf(Choices, guaranteed) < 0) Choices[0] = guaranteed;
+            RerollsRemaining--; return true;
         }
 
         private Enemy Nearest(V2 origin, float range, HashSet<int> excluded = null)
@@ -407,11 +478,12 @@ namespace Squares.Simulation
             ulong hash = 1469598103934665603UL;
             Action<int> add = n => { unchecked { hash = (hash ^ (uint)n) * 1099511628211UL; } };
             Action<float> number = n => add(BitConverter.ToInt32(BitConverter.GetBytes(n), 0));
-            add(Ticks); add(Kills); add(Level); add(Bosses); add((int)Phase);
+            add(Ticks); add(Kills); add(Level); add(Bosses); add((int)Phase); add((int)Specialization); add(RerollsRemaining);
+            foreach (Module choice in Choices) add((int)choice);
             number(Position.X); number(Position.Y); number(Hull); number(XP); number(Charge);
             foreach (int rank in Ranks) add(rank);
             foreach (Enemy e in Enemies)
-            { add(e.Id); add((int)e.Kind); number(e.Position.X); number(e.Position.Y); number(e.HP); }
+            { add(e.Id); add((int)e.Kind); number(e.Position.X); number(e.Position.Y); number(e.HP); number(e.SlowTime); }
             foreach (Bullet b in Bullets) { add(b.Id); number(b.Position.X); number(b.Position.Y); number(b.Life); }
             foreach (Pickup p in Pickups) { add(p.Id); number(p.Position.X); number(p.Position.Y); add(p.Value); }
             return hash;
