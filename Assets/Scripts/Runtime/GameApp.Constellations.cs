@@ -40,11 +40,13 @@ namespace Squares
                 AtlasDiagram(pattern, diagram, known ? SquareView.Gold : SquareView.Blue);
                 TextAt(new Rect(cx + 182, cy + 25, 222, 55), pattern.Name, 21, Text, true, wrap: true);
                 TextAt(new Rect(cx + 182, cy + 87, 222, 24), pattern.Points.Length + " ОСНОВНЫХ ЗВЁЗД", 14, SquareView.Gold);
-                TextAt(new Rect(cx + 182, cy + 124, 222, 50), pattern.Subtitle, 16, Muted, wrap: true);
+                string tolerance = (Constellations.ToleranceFor(pattern.Points.Length).StarFraction * 100).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+                TextAt(new Rect(cx + 182, cy + 113, 222, 24), "ДОПУСК: " + tolerance + "%", 14, SquareView.Mint);
+                TextAt(new Rect(cx + 182, cy + 144, 222, 32), pattern.Subtitle, 14, Muted, wrap: true);
                 TextAt(new Rect(cx + 182, cy + 179, 222, 25), known ? "УЖЕ ОТКРЫТО" : "ЕЩЁ НЕ НАЙДЕНО", 14, known ? SquareView.Mint : Muted);
             }
             TextAt(new Rect(x + 28, y + 641, 1324, 30), "CTRL: придержать магнит и не подбирать опыт. Отпусти, когда захочешь собрать награду. Игра на паузе.", 17, SquareView.Mint);
-            TextAt(new Rect(x + 28, y + 686, 1324, 53), "Поворот, размер и небольшие неточности допустимы; лишние точки не мешают. 5 точек по 3 опыта → один сгусток на 150.\nБонус навыка опыта применяется при подборе. Золотые сгустки повторно в созвездия не входят.", 16, Muted, wrap: true);
+            TextAt(new Rect(x + 28, y + 686, 1324, 53), "Поворот и размер допустимы. Меньше звёзд — строже допуск. 5 точек по 3 опыта → один сгусток на 150.\nБонус навыка опыта применяется при подборе. Золотые сгустки повторно в созвездия не входят.", 16, Muted, wrap: true);
         }
         private void AtlasDiagram(ConstellationPattern pattern, Rect rect, Color color)
         {

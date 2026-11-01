@@ -10,7 +10,33 @@ error `setup refresh had errors`. Requirements were recovered from local Codex h
 Working root: `P:\GameDevelopment\Squares`. Unity: `6000.3.26f1` with Windows support.
 Sandboxed shell startup still fails; escalated commands and apply_patch work.
 
-## Current: v0.3.0 — experience constellations
+## Current: v0.3.1 — star-count precision and projectile defense
+
+Specification 004 implemented. This was an ordinary requested change, not a timed session.
+
+- Constellation tolerance grows strictly with main-star count, including absolute caps:
+  5 stars → 2.5%, 6 → 3.75%, 7 → 5%, 9 → 7.5%, 20 → 15% per star. RMS uses 60%
+  of that relative tolerance. Atlas shows each pattern's own limit. Tenfold reward unchanged.
+- Friendly/enemy bullets mutually cancel on contact. Piercing does not survive a parry;
+  interceptions do not trigger explosive/cold weapon effects.
+- Existing orbiting satellites are now explicitly satellite-shields: their actual square
+  bodies destroy enemy bullets without being consumed. Gaps remain vulnerable.
+- Swept relative collision paths cover fast bullets, moving ships and shields. Hits are
+  resolved chronologically and deterministically, with defense winning simultaneous ties.
+  Earlier body/enemy hits cannot be undone by an interception later in the same tick.
+- Interception has square sparks and sound. New skills descriptions explain the shield role.
+
+Validation: 108,123 baseline assertions, 293 constellation assertions and 14 targeted
+projectile-defense assertions passed, followed by Windows x64 build. Actual player smoke:
+240 simulated seconds, Satellite core, 561 kills, level 20, one boss, 84 interceptions
+(31 shield blocks), zero errors; pause, build and atlas pauses passed. Inspected atlas at
+1280×720. Logs/screens in `Logs/Review004/Gameplay`, build log `Logs/Build.log`.
+Ordinary pilots now find fewer simple constellations because their tolerance is stricter;
+all six noisy positive fixtures and the exact reward integration tests still pass.
+
+Play `Builds/Windows/Squares.exe`. Source delivered on origin/main after tree-hash verification.
+
+## v0.3.0 — experience constellations (historical)
 
 Specification 003 implemented. Requested hour started 2026-10-31 19:58:55 UTC, minimum
 finish 20:58:55 UTC. The last verification/delivery iteration continued after the deadline.
@@ -127,7 +153,7 @@ The Windows executable remains available locally at `Builds/Windows/Squares.exe`
 
 ## Next iteration
 
-Have the user play v0.3. On an explicit timed request, follow AGENTS.md's real-time
+Have the user play v0.3.1. On an explicit timed request, follow AGENTS.md's real-time
 protocol and record observations in `docs/playtests/`. Prioritize first-run difficulty and
 upgrade pacing, new run modifiers, and boss tells. The bot currently finds strong builds
 and ends many runs at full hull; this is not proof of good balance or player retention.

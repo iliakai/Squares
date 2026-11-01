@@ -65,6 +65,7 @@ namespace Squares.Editor
             Check(fallbacks >= 3, "Three choices remain for a capped build");
             CheckNewSkills();
             ConstellationChecks.Run();
+            ProjectileDefenseChecks.Run();
             CheckBossCombat();
             CheckPersistence();
             Debug.Log("SQUARES_CHECKS_PASS assertions=" + assertions);

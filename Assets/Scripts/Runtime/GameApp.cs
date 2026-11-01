@@ -64,7 +64,7 @@ namespace Squares
             if (smoke) profile.selectedCore = reviewCore;
             font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
             view = new SquareView(transform); audioBus = new SynthAudio(gameObject);
-            Debug.Log("SQUARES_BOOT_OK version=0.3.0 smoke=" + smoke + " fixture=" + constellationDemo);
+            Debug.Log("SQUARES_BOOT_OK version=0.3.1 smoke=" + smoke + " fixture=" + constellationDemo);
         }
         private static string Argument(string[] args, string key)
         { int i = Array.IndexOf(args, key); return i >= 0 && i + 1 < args.Length ? args[i + 1] : null; }
@@ -194,14 +194,14 @@ namespace Squares
             TextAt(new Rect(left, 48, 750, 30), "ОДИН РЕАКТОР. ОДНА АРЕНА. ТЫСЯЧИ СОЧЕТАНИЙ.", 15, SquareView.Mint);
             TextAt(new Rect(left - 4, 94, 760, 100), "SQUARES", 90, Text, true);
             TextAt(new Rect(left, 202, 750, 55), "// OVERLOAD", 42, SquareView.Mint, true);
-            TextAt(new Rect(left + 890, 61, 470, 30), "ВЕРСИЯ 0.3   /   ЗВЁЗДНЫЙ ОПЫТ", 15, Muted, false, TextAnchor.UpperRight);
+            TextAt(new Rect(left + 890, 61, 470, 30), "ВЕРСИЯ 0.3.1 / ПЕРЕХВАТ СНАРЯДОВ", 15, Muted, false, TextAnchor.UpperRight);
             TextAt(new Rect(left + 940, 124, 420, 60), profile.flux + "  ФЛЮКСА", 44, SquareView.Gold, true, TextAnchor.UpperRight);
             TextAt(new Rect(left + 960, 198, 400, 40), "РЕКОРД  " + Clock(profile.bestSeconds) + "   /   " + profile.bestKills + " УБИЙСТВ", 17, Muted, false, TextAnchor.UpperRight);
             Fill(new Rect(left, 284, 1360, 1), LineColor);
             TextAt(new Rect(left, 308, 800, 28), "01  /  ВЫБЕРИ СТАРТОВЫЙ РЕАКТОР", 16, Muted);
             string[] descriptions = {
                 "СТРЕЛЬБА / ТЕМП\nАвтопушка + скорострельность.\nСтреляй издалека и собирай врагов в ряд.",
-                "БЛИЖНИЙ БОЙ / КОНТРОЛЬ\nАвтопушка + боевой спутник.\nВеди врагов вдоль своей орбиты.",
+                "БЛИЖНИЙ БОЙ / ЗАЩИТА\nАвтопушка + спутник-щит.\nСпутник бьёт врагов и сбивает их пули.",
                 "ЦЕПИ / ТОЛПА\nАвтопушка + цепная молния.\nЧем теснее враги, тем сильнее разряд."
             };
             for (int i = 0; i < 3; i++)
@@ -434,7 +434,7 @@ namespace Squares
         private sealed class SmokeReport
         {
             public bool passed, pausePassed, buildPausePassed, atlasPausePassed, screenshotRequested, fixture;
-            public int errors, ticks, kills, level, bosses, picks, flux, constellations, starPickups, screenshots;
+            public int errors, ticks, kills, level, bosses, picks, flux, constellations, starPickups, screenshots, intercepts, shieldBlocks;
             public long starXP, starXPCreated;
             public float seconds, hull;
             public string fingerprint;
@@ -445,6 +445,7 @@ namespace Squares
             var report = new SmokeReport { passed = errors == 0 && pausePassed && (!buildChecked || buildPausePassed) && (!atlasChecked || atlasPausePassed) && picks >= 3 && combatPassed,
                 pausePassed = pausePassed, buildPausePassed = buildPausePassed, atlasPausePassed = atlasPausePassed, fixture = constellationDemo,
                 constellations = world.ConstellationsFound, starPickups = world.CelestialPickupsCollected, starXP = world.CelestialExperienceCollected,
+                intercepts = world.ProjectilesIntercepted, shieldBlocks = world.ShieldBlocks,
                 starXPCreated = world.CelestialExperienceCreated, screenshotRequested = screenshotsCount > 0,
                 screenshots = screenshotsCount, errors = errors, ticks = world.Ticks,
                 kills = world.Kills, level = world.Level, bosses = world.Bosses, picks = picks, flux = world.EarnedFlux,

@@ -29,6 +29,22 @@ namespace Squares.Editor
         public static void Run()
         {
             assertions = 0; var matcher = new ConstellationMatcher();
+            for (int n = 6; n <= 20; n++)
+            {
+                ConstellationTolerance a = Constellations.ToleranceFor(n - 1), b = Constellations.ToleranceFor(n);
+                Check(b.StarFraction > a.StarFraction && b.RmsFraction > a.RmsFraction &&
+                    b.MaximumStarError > a.MaximumStarError && b.MaximumRmsError > a.MaximumRmsError,
+                    "More stars allow more positional error: " + n);
+            }
+            Check(Math.Abs(Constellations.ToleranceFor(5).StarFraction - .025f) < .00001f &&
+                Math.Abs(Constellations.ToleranceFor(9).StarFraction - .075f) < .00001f &&
+                Math.Abs(Constellations.ToleranceFor(20).StarFraction - .15f) < .00001f, "Documented tolerance anchors");
+            List<Pickup> strict = Figure(0, 6, 0, new V2(8, 0), false);
+            strict[Constellations.All[0].MatchOrder[0]].Position += new V2(.27f, .15f);
+            Check(matcher.Find(strict, default, 0, 0) == null, "Simple five-star figure rejects five-percent distortion");
+            List<Pickup> loose = Figure(5, 6, 0, new V2(8, 0), false);
+            loose[Constellations.All[5].MatchOrder[0]].Position += new V2(.27f, .15f);
+            Check(matcher.Find(loose, default, 0, 0)?.PatternIndex == 5, "Complex nine-star figure tolerates the same distortion");
             for (int index = 0; index < Constellations.All.Length; index++)
             {
                 ConstellationPattern pattern = Constellations.All[index];

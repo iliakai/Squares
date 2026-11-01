@@ -42,7 +42,7 @@ namespace Squares.Simulation
 
     public enum RunPhase { Running, Draft, Dead }
     public enum EnemyKind { Chaser, Charger, Sniper, Splitter, Elite, Boss }
-    public enum EffectKind { Shot, Hit, Kill, Hurt, Dash, Arc, Overload, Level, Boss, Pickup, Blast, Chill, Ram, Constellation, StarPickup }
+    public enum EffectKind { Shot, Hit, Kill, Hurt, Dash, Arc, Overload, Level, Boss, Pickup, Blast, Chill, Ram, Constellation, StarPickup, Parry }
     public enum Specialization { None, Siege, Storm, Scout }
     public struct WorldEvent
     {
@@ -57,13 +57,13 @@ namespace Squares.Simulation
     {
         public int Id;
         public EnemyKind Kind;
-        public V2 Position, Heading;
+        public V2 Position, PreviousPosition, Heading;
         public float HP, MaxHP, Size, Speed, Timer, Windup, Rush, OrbitHit, SlowTime, SlowFactor;
     }
     public sealed class Bullet
     {
         public int Id, Pierce;
-        public V2 Position, Velocity;
+        public V2 Position, PreviousPosition, Velocity;
         public float Life, Damage, Size;
         public bool Hostile;
         public readonly System.Collections.Generic.List<int> HitIds = new System.Collections.Generic.List<int>();

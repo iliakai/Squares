@@ -35,7 +35,7 @@ namespace Squares
                 case Module.Rate: return Change("Залпов / сек", 1 / a.ShotPeriod, 1 / b.ShotPeriod) + "\n" + Change("Зарядка молнии", a.ArcPeriod, b.ArcPeriod, " с");
                 case Module.Multishot: return Change("Пуль в залпе", a.Shots, b.Shots) + "\nУрон каждой: " + N(b.BulletDamage);
                 case Module.Pierce: return Change("Целей одной пулей", a.PierceTargets, b.PierceTargets) + "\nПробитие без потери урона";
-                case Module.Satellite: return Change("Спутников", a.Satellites, b.Satellites) + "\nУрон касания: " + N(b.OrbitDamage);
+                case Module.Satellite: return Change("Спутников-щитов", a.Satellites, b.Satellites) + "\nУрон касания: " + N(b.OrbitDamage);
                 case Module.OrbitPower: return Change("Урон касания", a.OrbitDamage, b.OrbitDamage) + "\n" + Change("Оборотов / сек", a.OrbitSpeed / 6.2831853f, b.OrbitSpeed / 6.2831853f);
                 case Module.OrbitRadius: return Change("Радиус орбиты", a.OrbitRadius, b.OrbitRadius) + "\nСпутники также крупнее";
                 case Module.Arc: return Change("Урон разряда", a.ArcDamage, b.ArcDamage) + "\n" + Change("Целей разрядом", a.ArcDamage > 0 ? a.ArcTargets : 0, b.ArcTargets);

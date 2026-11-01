@@ -76,3 +76,9 @@ Rewards cannot feed another constellation. C opens a pausing atlas; holding CTRL
 harvesting, introducing the choice between immediate levels and a possible larger payout.
 Atlas discovery entries bank at run end. The detection geometry, numeric limits, original
 vector-diagram references, and verification evidence are recorded in specification 003.
+
+v0.3.1 (specification 004): tolerance increases with star count (5: 2.5%, 7: 5%, 9: 7.5%,
+20: 15%). Simple patterns need much closer agreement. Player and hostile bullets mutually
+cancel. Orbiting satellite squares also intercept hostile bullets, remain intact and leave
+gaps. Continuous paths and chronological resolution prevent tunneling and late cancellations
+from undoing earlier damage. Parry events never trigger explosive/cold damage.

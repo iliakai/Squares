@@ -56,6 +56,9 @@ namespace Squares
                 case EffectKind.Boss: clip = hurt; break;
                 case EffectKind.Constellation: clip = stars; volume = .8f; break;
                 case EffectKind.StarPickup: clip = level; break;
+                case EffectKind.Parry:
+                    if (Time.unscaledTime - lastHit < .06f) return;
+                    lastHit = Time.unscaledTime; clip = hit; volume = .45f; break;
             }
             if (clip != null) source.PlayOneShot(clip, volume);
         }

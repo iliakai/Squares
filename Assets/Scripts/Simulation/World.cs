@@ -3,7 +3,7 @@ using System.Collections.Generic;
 
 namespace Squares.Simulation
 {
-    public sealed class World
+    public sealed partial class World
     {
         public const float Dt = 1f / 60f, HalfWidth = 20f, HalfHeight = 9.5f;
         public const int EnemyCap = 200, BulletCap = 650, PickupCap = 250;
@@ -24,6 +24,8 @@ namespace Squares.Simulation
         public int Bosses { get; private set; }
         public int Combo { get; private set; }
         public int DamageTaken { get; private set; }
+        public int ProjectilesIntercepted { get; private set; }
+        public int ShieldBlocks { get; private set; }
         public int ConstellationsFound { get; private set; }
         public long CelestialExperienceCreated { get; private set; }
         public long CelestialExperienceCollected { get; private set; }
@@ -70,7 +72,7 @@ namespace Squares.Simulation
         private int nextId, nextElite = 3600, nextBoss = 10800;
         private float spawnTimer = .5f, shotTimer, arcTimer, comboTimer;
         private readonly float researchXP, researchSpeed;
-        private V2 dashHeading;
+        private V2 dashHeading, previousPlayerPosition;
         private readonly HashSet<int> ramHits = new HashSet<int>();
         private readonly ConstellationMatcher constellationMatcher = new ConstellationMatcher();
         private int constellationCursor;
@@ -98,6 +100,7 @@ namespace Squares.Simulation
         {
             Events.Clear();
             if (Phase != RunPhase.Running) return;
+            previousPlayerPosition = Position;
             Ticks++;
             HoldingExperience = command.HoldExperience;
             Invincible = Math.Max(0, Invincible - Dt);
@@ -241,7 +244,7 @@ namespace Squares.Simulation
                 case EnemyKind.Boss: hp = 1550 * (1 + Bosses * .65f); speed = 1.2f; size = 1.3f; break;
             }
             if (small) { hp *= .45f; speed *= 1.35f; size = .24f; }
-            Enemies.Add(new Enemy { Id = ++nextId, Kind = kind, Position = p, HP = hp, MaxHP = hp,
+            Enemies.Add(new Enemy { Id = ++nextId, Kind = kind, Position = p, PreviousPosition = p, HP = hp, MaxHP = hp,
                 Size = size, Speed = speed, Timer = 1.2f + random.Value() * 1.3f });
         }
 
@@ -251,6 +254,7 @@ namespace Squares.Simulation
             for (int i = 0; i < count; i++)
             {
                 Enemy e = Enemies[i];
+                e.PreviousPosition = e.Position;
                 if (e.HP <= 0) continue;
                 e.Timer -= Dt; e.OrbitHit = Math.Max(0, e.OrbitHit - Dt);
                 e.SlowTime = Math.Max(0, e.SlowTime - Dt);
@@ -312,52 +316,30 @@ namespace Squares.Simulation
                 Hostile = hostile, Pierce = pierce, Life = hostile ? 7 : 2, Size = hostile ? .16f : .1f });
         }
 
-        private void UpdateBullets()
+        private void ApplyBulletHit(Bullet b, Enemy e)
         {
-            for (int i = Bullets.Count - 1; i >= 0; i--)
+            b.HitIds.Add(e.Id);
+            if (Rank(Module.Frost) > 0)
             {
-                Bullet b = Bullets[i];
-                b.Life -= Dt;
-                b.Position += b.Velocity * Dt;
-                if (b.Hostile)
-                {
-                    if (V2.DistanceSquared(b.Position, Position) < .25f)
-                    { Hurt(b.Damage); b.Life = 0; }
-                }
-                else
-                {
-                    foreach (Enemy e in Enemies)
-                    {
-                        if (e.HP <= 0 || b.HitIds.Contains(e.Id)) continue;
-                        float r = e.Size + b.Size;
-                        if (V2.DistanceSquared(b.Position, e.Position) > r * r) continue;
-                        b.HitIds.Add(e.Id);
-                        if (Rank(Module.Frost) > 0)
-                        {
-                            e.SlowTime = Stats.SlowDuration;
-                            e.SlowFactor = Stats.SlowFraction * (e.Kind == EnemyKind.Boss ? .5f : 1);
-                            Emit(EffectKind.Chill, e.Position);
-                        }
-                        Hit(e, b.Damage, true);
-                        if (Rank(Module.Blast) > 0)
-                        {
-                            CombatStats stats = Stats;
-                            Emit(EffectKind.Blast, e.Position, size: stats.BlastRadius);
-                            foreach (Enemy neighbor in Enemies)
-                            {
-                                if (neighbor.Id == e.Id || neighbor.HP <= 0) continue;
-                                V2 gap = neighbor.Position - e.Position;
-                                if (Math.Abs(gap.X) > stats.BlastRadius || Math.Abs(gap.Y) > stats.BlastRadius) continue;
-                                Hit(neighbor, b.Damage * stats.BlastFraction * (HasIcebreak && neighbor.SlowTime > 0 ? 1.5f : 1), false);
-                            }
-                        }
-                        if (HasShatter) e.Position = Clamp(e.Position + b.Velocity.Normalized * .22f, e.Size);
-                        if (b.Pierce-- <= 0) { b.Life = 0; break; }
-                    }
-                }
-                if (b.Life <= 0 || Math.Abs(b.Position.X) > 22 || Math.Abs(b.Position.Y) > 11)
-                    Bullets.RemoveAt(i);
+                e.SlowTime = Stats.SlowDuration;
+                e.SlowFactor = Stats.SlowFraction * (e.Kind == EnemyKind.Boss ? .5f : 1);
+                Emit(EffectKind.Chill, e.Position);
             }
+            Hit(e, b.Damage, true);
+            if (Rank(Module.Blast) > 0)
+            {
+                CombatStats stats = Stats;
+                Emit(EffectKind.Blast, e.Position, size: stats.BlastRadius);
+                foreach (Enemy neighbor in Enemies)
+                {
+                    if (neighbor.Id == e.Id || neighbor.HP <= 0) continue;
+                    V2 gap = neighbor.Position - e.Position;
+                    if (Math.Abs(gap.X) > stats.BlastRadius || Math.Abs(gap.Y) > stats.BlastRadius) continue;
+                    Hit(neighbor, b.Damage * stats.BlastFraction * (HasIcebreak && neighbor.SlowTime > 0 ? 1.5f : 1), false);
+                }
+            }
+            if (HasShatter) e.Position = Clamp(e.Position + b.Velocity.Normalized * .22f, e.Size);
+            if (b.Pierce-- <= 0) b.Life = 0;
         }
 
         private void Hit(Enemy e, float damage, bool critical)
@@ -512,6 +494,7 @@ namespace Squares.Simulation
             add(Ticks); add(Kills); add(Level); add(Bosses); add((int)Phase); add((int)Specialization); add(RerollsRemaining);
             add(ConstellationsFound); add(constellationCursor); add(HoldingExperience ? 1 : 0);
             add(ConstellationMask); add(CelestialPickupsCollected);
+            add(ProjectilesIntercepted); add(ShieldBlocks);
             add((int)CelestialExperienceCreated); add((int)(CelestialExperienceCreated >> 32));
             add((int)CelestialExperienceCollected); add((int)(CelestialExperienceCollected >> 32));
             foreach (Module choice in Choices) add((int)choice);

@@ -70,9 +70,23 @@ namespace Squares.Simulation
             }, 5,4, 4,3, 3,2, 2,1, 1,0, 2,8, 8,7, 7,6, 6,0, 6,8)
         };
         public const float MinimumSpan = 3, MaximumSpan = 45;
-        public const float StarTolerance = .075f, RmsTolerance = .045f;
-        public const float MaximumStarError = .65f, MaximumRmsError = .38f;
+        public static ConstellationTolerance ToleranceFor(int stars)
+        {
+            stars = Math.Max(5, Math.Min(20, stars));
+            float t = stars <= 9 ? (stars - 5) / 4f : (stars - 9) / 11f;
+            float fraction = stars <= 9 ? .025f + t * .05f : .075f + t * .075f;
+            return new ConstellationTolerance {
+                StarFraction = fraction, RmsFraction = fraction * .6f,
+                MaximumStarError = stars <= 9 ? .22f + t * .43f : .65f + t * .65f,
+                MaximumRmsError = stars <= 9 ? .13f + t * .25f : .38f + t * .38f
+            };
+        }
         public const int SearchInterval = 30, AnchorBudget = 1200;
+    }
+
+    public struct ConstellationTolerance
+    {
+        public float StarFraction, RmsFraction, MaximumStarError, MaximumRmsError;
     }
 
     public sealed class ConstellationDiscovery
@@ -121,6 +135,7 @@ namespace Squares.Simulation
             foreach (int patternIndex in PatternOrder)
             {
                 ConstellationPattern pattern = Constellations.All[patternIndex];
+                ConstellationTolerance tolerance = Constellations.ToleranceFor(pattern.Points.Length);
                 if (count < pattern.Points.Length) continue;
                 float bestScore = float.MaxValue;
                 for (int scan = 0; scan < budget; scan++)
@@ -132,10 +147,10 @@ namespace Squares.Simulation
                     if (lengthSquared < Constellations.MinimumSpan * Constellations.MinimumSpan ||
                         lengthSquared > Constellations.MaximumSpan * Constellations.MaximumSpan) continue;
                     LastAnchorTests++;
-                    float toleranceSquared = Math.Min(lengthSquared * Constellations.StarTolerance * Constellations.StarTolerance,
-                        Constellations.MaximumStarError * Constellations.MaximumStarError);
-                    float allowedError = Math.Min(lengthSquared * Constellations.RmsTolerance * Constellations.RmsTolerance,
-                        Constellations.MaximumRmsError * Constellations.MaximumRmsError) * pattern.Points.Length;
+                    float toleranceSquared = Math.Min(lengthSquared * tolerance.StarFraction * tolerance.StarFraction,
+                        tolerance.MaximumStarError * tolerance.MaximumStarError);
+                    float allowedError = Math.Min(lengthSquared * tolerance.RmsFraction * tolerance.RmsFraction,
+                        tolerance.MaximumRmsError * tolerance.MaximumRmsError) * pattern.Points.Length;
                     for (int mirror = -1; mirror <= 1; mirror += 2)
                     {
                         for (int i = 0; i < pattern.Points.Length; i++) chosen[i] = -1;

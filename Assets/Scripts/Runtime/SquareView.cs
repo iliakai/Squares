@@ -46,7 +46,7 @@ namespace Squares
             if (e.Kind == EffectKind.Blast && pulses.Count < 100) pulses.Add(new Pulse { P = Vec(e.A), Radius = e.Size });
             Color color = e.Kind == EffectKind.Hurt ? Red : e.Kind == EffectKind.Arc || e.Kind == EffectKind.Chill ? Blue :
                 e.Kind == EffectKind.Blast || e.Kind == EffectKind.Ram ? Gold : Mint;
-            int count = e.Kind == EffectKind.Kill ? 8 : e.Kind == EffectKind.Overload ? 70 : 4;
+            int count = e.Kind == EffectKind.Parry ? 10 : e.Kind == EffectKind.Kill ? 8 : e.Kind == EffectKind.Overload ? 70 : 4;
             if (e.Kind == EffectKind.Arc)
             {
                 Vector2 a = Vec(e.A), b = Vec(e.B);
